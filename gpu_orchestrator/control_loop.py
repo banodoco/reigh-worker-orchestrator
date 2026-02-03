@@ -183,11 +183,34 @@ class OrchestratorControlLoop:
 
         if detailed_counts:
             totals = detailed_counts.get('totals', {})
-            total_tasks = totals.get('queued_plus_active', 0)
-            queued_count = totals.get('queued_only', 0)
             active_cloud_count = totals.get('active_only', 0)
-
-            logger.critical(f"TASK COUNT (Cycle #{self.cycle_count}): Queued={queued_count}, Active={active_cloud_count}, Total={total_tasks}")
+            
+            # NEW SCALING LOGIC: Use potentially_claimable for scaling decisions
+            # potentially_claimable = queued_only + blocked_by_capacity
+            # This excludes blocked_by_deps (uncertain) and blocked_by_settings (user choice)
+            potentially_claimable = totals.get('potentially_claimable')
+            
+            if potentially_claimable is not None:
+                # New edge function with breakdown - use potentially_claimable for scaling
+                queued_count = potentially_claimable
+                total_tasks = potentially_claimable + active_cloud_count
+                
+                # Log the breakdown for visibility
+                queued_only = totals.get('queued_only', 0)  # Claimable right now (capacity-limited)
+                blocked_capacity = totals.get('blocked_by_capacity', 0)
+                blocked_deps = totals.get('blocked_by_deps', 0)
+                blocked_settings = totals.get('blocked_by_settings', 0)
+                
+                logger.critical(f"TASK COUNT (Cycle #{self.cycle_count}): "
+                              f"Scaling={potentially_claimable} (queued_only={queued_only} + capacity_blocked={blocked_capacity}), "
+                              f"Active={active_cloud_count}, "
+                              f"[NOT scaling for: deps_blocked={blocked_deps}, settings_blocked={blocked_settings}]")
+            else:
+                # Legacy edge function - fall back to queued_only
+                queued_count = totals.get('queued_only', 0)
+                total_tasks = totals.get('queued_plus_active', 0)
+                logger.critical(f"TASK COUNT (Cycle #{self.cycle_count}): Queued={queued_count}, Active={active_cloud_count}, Total={total_tasks}")
+            
             self._log_detailed_task_breakdown(detailed_counts, queued_count, active_cloud_count, total_tasks)
         else:
             logger.warning("Failed to get detailed task counts, falling back to simple counting")
@@ -198,21 +221,54 @@ class OrchestratorControlLoop:
 
         return workers, TaskCounts(queued=queued_count, active_cloud=active_cloud_count, total=total_tasks), detailed_counts
 
-    def _log_detailed_task_breakdown(self, detailed_counts: Dict, queued: int, active: int, total: int):
+    def _log_detailed_task_breakdown(self, detailed_counts: Dict, scaling_queued: int, active: int, total: int):
         """Log detailed task breakdown for debugging."""
         import sys
-
+        
+        totals = detailed_counts.get('totals', {})
+        
+        # Check if new breakdown fields are available
+        potentially_claimable = totals.get('potentially_claimable')
+        
         print(f"\n{'=' * 80}", file=sys.stderr)
         print(f"ORCHESTRATOR CYCLE #{self.cycle_count} - TASK COUNT", file=sys.stderr)
-        print(f"  Queued only: {queued}", file=sys.stderr)
-        print(f"  Active (cloud): {active}", file=sys.stderr)
-        print(f"  Total workload: {total}", file=sys.stderr)
+        
+        if potentially_claimable is not None:
+            # New breakdown available
+            queued_only = totals.get('queued_only', 0)  # Claimable right now
+            blocked_capacity = totals.get('blocked_by_capacity', 0)
+            blocked_deps = totals.get('blocked_by_deps', 0)
+            blocked_settings = totals.get('blocked_by_settings', 0)
+            
+            print(f"  For scaling: {scaling_queued} (queued_only={queued_only} + blocked_by_capacity={blocked_capacity})", file=sys.stderr)
+            print(f"  Active (cloud): {active}", file=sys.stderr)
+            print(f"  NOT scaling for: blocked_by_deps={blocked_deps}, blocked_by_settings={blocked_settings}", file=sys.stderr)
+        else:
+            # Legacy format
+            print(f"  Queued only: {scaling_queued}", file=sys.stderr)
+            print(f"  Active (cloud): {active}", file=sys.stderr)
+            print(f"  Total workload: {total}", file=sys.stderr)
+        
         print(f"{'=' * 80}\n", file=sys.stderr)
 
         logger.info("DETAILED TASK BREAKDOWN:")
-        logger.info(f"   Queued only: {queued}")
+        
+        if potentially_claimable is not None:
+            queued_only = totals.get('queued_only', 0)  # Claimable right now
+            blocked_capacity = totals.get('blocked_by_capacity', 0)
+            blocked_deps = totals.get('blocked_by_deps', 0)
+            blocked_settings = totals.get('blocked_by_settings', 0)
+            
+            logger.info(f"   Queued only (claimable now): {queued_only}")
+            logger.info(f"   Blocked by capacity (scaling): {blocked_capacity}")
+            logger.info(f"   Blocked by dependencies (NOT scaling): {blocked_deps}")
+            logger.info(f"   Blocked by settings (NOT scaling): {blocked_settings}")
+            logger.info(f"   --> For scaling: {scaling_queued}")
+        else:
+            logger.info(f"   Queued only: {scaling_queued}")
+        
         logger.info(f"   Active (cloud-claimed): {active}")
-        logger.info(f"   Total (queued + active): {total}")
+        logger.info(f"   Total for scaling: {total}")
 
         if 'global_task_breakdown' in detailed_counts:
             breakdown = detailed_counts['global_task_breakdown']
@@ -335,8 +391,7 @@ class OrchestratorControlLoop:
                     logger.warning(f"Failed to terminate spawning worker {ws.worker_id}")
 
             metadata_update = {
-                'error_reason': f'Early termination: over-capacity ({current_capacity} > {early_desired})',
-                'error_time': now.isoformat(),
+                'termination_reason': f'early_termination_over_capacity ({current_capacity} > {early_desired})',
                 'terminated_at': now.isoformat()
             }
             await self.db.update_worker_status(ws.worker_id, 'terminated', metadata_update)
@@ -537,6 +592,24 @@ class OrchestratorControlLoop:
 
                 # Check for stuck tasks
                 await self._check_stuck_tasks(ws, summary)
+                
+                # Check for task failure loops (e.g., OOM causing repeated failures)
+                failure_check = await self._check_worker_task_failure_streak(worker_id)
+                if failure_check['should_restart']:
+                    worker = await self.db.get_worker_by_id(worker_id)
+                    if worker:
+                        await self._mark_worker_error(
+                            worker, 
+                            failure_check['reason'],
+                            context={
+                                'error_code': 'task_failure_loop',
+                                'consecutive_failures': failure_check['consecutive_failures'],
+                                'total_failures': failure_check.get('total_failures', 0),
+                                'failure_rate': failure_check.get('failure_rate', 0),
+                            }
+                        )
+                        summary.workers_failed += 1
+                    continue
 
             except Exception as e:
                 logger.error(f"Error checking health of worker {ws.worker_id}: {e}")
@@ -605,6 +678,68 @@ class OrchestratorControlLoop:
             logger.error(f"HEALTH_CHECK [Worker {worker_id}] Health check failed: {e}")
             return False
 
+    async def _check_worker_task_failure_streak(self, worker_id: str) -> Dict[str, Any]:
+        """
+        Check if a worker is repeatedly failing tasks.
+        
+        Queries recent task outcomes to detect workers stuck in failure loops
+        (e.g., OOM errors causing every task to fail).
+        
+        Returns:
+            Dict with:
+                - should_restart: True if worker has too many consecutive failures
+                - consecutive_failures: Number of consecutive failures
+                - reason: Human-readable reason if should_restart is True
+        """
+        try:
+            stats = await self.db.get_worker_task_failure_streak(
+                worker_id,
+                window_minutes=self.config.task_failure_window_minutes
+            )
+            
+            consecutive = stats['consecutive_failures']
+            threshold = self.config.max_consecutive_task_failures
+            
+            if consecutive >= threshold:
+                reason = (
+                    f"Task failure loop detected: {consecutive} consecutive failures "
+                    f"(threshold: {threshold}). Possible OOM or worker corruption."
+                )
+                logger.warning(f"[TASK_FAILURE_STREAK] Worker {worker_id}: {reason}")
+                return {
+                    'should_restart': True,
+                    'consecutive_failures': consecutive,
+                    'total_failures': stats['total_failures'],
+                    'total_outcomes': stats['total_outcomes'],
+                    'failure_rate': stats['failure_rate'],
+                    'reason': reason
+                }
+            
+            # Log info if there are some failures but not enough to trigger restart
+            if consecutive > 0:
+                logger.debug(
+                    f"[TASK_FAILURE_STREAK] Worker {worker_id}: {consecutive} consecutive failures "
+                    f"(threshold: {threshold}, rate: {stats['failure_rate']:.0%})"
+                )
+            
+            return {
+                'should_restart': False,
+                'consecutive_failures': consecutive,
+                'total_failures': stats['total_failures'],
+                'total_outcomes': stats['total_outcomes'],
+                'failure_rate': stats['failure_rate'],
+                'reason': None
+            }
+            
+        except Exception as e:
+            logger.error(f"[TASK_FAILURE_STREAK] Error checking worker {worker_id}: {e}")
+            # Don't restart on query error
+            return {
+                'should_restart': False,
+                'consecutive_failures': 0,
+                'reason': None
+            }
+
     # =========================================================================
     # PHASE 6: Cleanup error workers
     # =========================================================================
@@ -651,15 +786,16 @@ class OrchestratorControlLoop:
             reset_count = await self.db.reset_orphaned_tasks(failed_ids[:100])  # Limit batch size
             summary.tasks_reset = reset_count
 
-        # Also check for unassigned orphaned tasks
+        # Also check for unassigned orphaned tasks (tasks with no worker_id)
         unassigned_reset = await self.db.reset_unassigned_orphaned_tasks(timeout_minutes=15)
         summary.tasks_reset += unassigned_reset
 
-        # Check API worker orphaned tasks
-        api_reset = await self.db.reset_api_worker_orphaned_tasks(timeout_minutes=7)
-        summary.tasks_reset += api_reset
+        # NOTE: We intentionally do NOT reset API worker tasks here.
+        # API tasks (api-worker-*) are managed by the API orchestrator, not the GPU orchestrator.
+        # Video enhancement and other API tasks can legitimately run for 10+ minutes.
+        # The API orchestrator is responsible for its own task lifecycle.
 
-        # Check stale assigned tasks
+        # Check stale assigned tasks (excludes api-worker-* tasks)
         stale_reset = await self.db.reset_stale_assigned_tasks(timeout_minutes=30)
         summary.tasks_reset += stale_reset
 
@@ -843,7 +979,8 @@ class OrchestratorControlLoop:
                 logger.info(f"Terminating {to_terminate} workers (over-capacity: {decision.current_capacity} > {decision.desired_workers})")
 
                 for worker in terminatable[:to_terminate]:
-                    if await self._terminate_worker(worker):
+                    reason = f"scale_down_idle (capacity {decision.current_capacity} > desired {decision.desired_workers})"
+                    if await self._terminate_worker(worker, reason=reason):
                         summary.workers_terminated += 1
                         logger.info(f"Terminated idle worker {worker['id']} (idle > {dynamic_timeout}s)")
 
@@ -1241,12 +1378,23 @@ class OrchestratorControlLoop:
             logger.error(f"Error spawning worker: {e}")
             return False
 
-    async def _terminate_worker(self, worker: Dict[str, Any]) -> bool:
-        """Terminate a worker and update its status."""
+    async def _terminate_worker(self, worker: Dict[str, Any], reason: str = "scale_down") -> bool:
+        """Terminate a worker and update its status.
+        
+        Args:
+            worker: Worker dict from database
+            reason: Why the worker is being terminated. Used for observability.
+                    Common reasons: 'scale_down_idle', 'over_capacity', 'manual'
+                    
+        Note: This sets status to 'terminated' (not 'error') because this is an
+        intentional shutdown, not a failure. The failure rate calculation only
+        counts 'error' status workers, so scale-down terminations won't block
+        spawning of new workers.
+        """
         worker_id = worker['id']
         runpod_id = worker.get('metadata', {}).get('runpod_id')
 
-        logger.info(f"WORKER_LIFECYCLE [Worker {worker_id}] TERMINATING worker")
+        logger.info(f"WORKER_LIFECYCLE [Worker {worker_id}] TERMINATING worker (reason: {reason})")
 
         try:
             if runpod_id:
@@ -1260,7 +1408,10 @@ class OrchestratorControlLoop:
                 # BUG FIX: Don't silently skip - this leaves orphaned pods!
                 logger.error(f"WORKER_LIFECYCLE [Worker {worker_id}] NO RUNPOD_ID - cannot terminate pod!")
 
-            termination_metadata = {'terminated_at': datetime.now(timezone.utc).isoformat()}
+            termination_metadata = {
+                'terminated_at': datetime.now(timezone.utc).isoformat(),
+                'termination_reason': reason,  # For observability - not an error
+            }
             await self.db.update_worker_status(worker_id, 'terminated', termination_metadata)
             return True
 
@@ -1269,7 +1420,19 @@ class OrchestratorControlLoop:
             return False
 
     async def _check_worker_failure_rate(self) -> bool:
-        """Check if the worker failure rate is too high."""
+        """Check if the worker failure rate is too high.
+        
+        Only counts workers with 'error' status as failures. Workers with
+        'terminated' status are intentional shutdowns (scale-down, over-capacity)
+        and should NOT be counted as failures.
+        
+        This distinction is important because:
+        - 'error' = something went wrong (timeout, GPU broken, crash)
+        - 'terminated' = intentional shutdown (no more work, over-capacity)
+        
+        Without this distinction, normal scale-down operations would trigger
+        the failure rate protection and block spawning new workers.
+        """
         try:
             cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=self.config.failure_window_minutes)
 
@@ -1289,10 +1452,16 @@ class OrchestratorControlLoop:
             if len(recent_workers) < self.config.min_workers_for_rate_check:
                 return True
 
-            failed_workers = [w for w in recent_workers if w['status'] in ['error', 'terminated']]
+            # Only count 'error' status as failures, NOT 'terminated'
+            # 'terminated' = intentional scale-down, not a failure
+            failed_workers = [w for w in recent_workers if w['status'] == 'error']
+            terminated_workers = [w for w in recent_workers if w['status'] == 'terminated']
+            
+            # Calculate failure rate based only on actual errors
             failure_rate = len(failed_workers) / len(recent_workers)
 
-            logger.info(f"[FAILURE_RATE] Recent: {len(recent_workers)}, Failed: {len(failed_workers)}, Rate: {failure_rate:.2%}")
+            logger.info(f"[FAILURE_RATE] Recent: {len(recent_workers)}, Errors: {len(failed_workers)}, "
+                       f"Terminated (scale-down): {len(terminated_workers)}, Failure rate: {failure_rate:.2%}")
 
             if failure_rate > self.config.max_worker_failure_rate:
                 logger.error(f"[FAILURE_RATE] CRITICAL: Rate ({failure_rate:.2%}) exceeds threshold ({self.config.max_worker_failure_rate:.2%})")

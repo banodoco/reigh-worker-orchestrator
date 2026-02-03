@@ -115,14 +115,40 @@ class DatabaseClient:
                         data = await response.json()
                         logger.info(f"✅ Task counts endpoint returned detailed breakdown: {data.get('totals', {})}")
                         
-                        # Log the FULL response for debugging the discrepancy
+                        # Log response for debugging
+                        totals = data.get('totals', {})
                         logger.info(f"🔍 EDGE_FUNCTION_DEBUG Full response keys: {list(data.keys())}")
-                        if 'users' in data:
-                            total_user_queued = sum(u.get('queued_tasks', 0) for u in data['users'])
-                            total_user_progress = sum(u.get('in_progress_tasks', 0) for u in data['users'])
-                            logger.info(f"🔍 EDGE_FUNCTION_DEBUG User totals: {total_user_queued} queued, {total_user_progress} in progress")
+                        logger.info(f"🔍 EDGE_FUNCTION_DEBUG Totals: {totals}")
                         
-                        logger.info(f"🔍 EDGE_FUNCTION_DEBUG Totals from Edge Function: {data.get('totals', 'MISSING')}")
+                        # Check if new breakdown fields are present (from updated edge function)
+                        potentially_claimable = totals.get('potentially_claimable')
+                        if potentially_claimable is not None:
+                            # New edge function with proper breakdown
+                            queued_only = totals.get('queued_only', 0)  # Claimable right now
+                            blocked_capacity = totals.get('blocked_by_capacity', 0)
+                            blocked_deps = totals.get('blocked_by_deps', 0)
+                            blocked_settings = totals.get('blocked_by_settings', 0)
+                            logger.info(f"✅ New edge function breakdown: queued_only={queued_only}, "
+                                       f"capacity_blocked={blocked_capacity}, deps_blocked={blocked_deps}, "
+                                       f"settings_blocked={blocked_settings}, potentially_claimable={potentially_claimable}")
+                        else:
+                            # Legacy edge function - apply workaround for backward compatibility
+                            logger.info("⚠️ Legacy edge function detected (no potentially_claimable field)")
+                            reported_queued = totals.get('queued_only', 0)
+                            reported_active = totals.get('active_only', 0)
+                            
+                            # Compute actual counts from arrays if available
+                            queued_tasks_list = data.get('queued_tasks', [])
+                            active_tasks_list = data.get('active_tasks', [])
+                            actual_queued = len(queued_tasks_list)
+                            actual_active = len(active_tasks_list) if active_tasks_list else reported_active
+                            
+                            # LEGACY WORKAROUND: Override if totals don't match array
+                            if actual_queued > 0 and reported_queued == 0:
+                                logger.warning(f"⚠️ LEGACY_WORKAROUND: totals.queued_only={reported_queued} but "
+                                             f"queued_tasks has {actual_queued} items! Overriding.")
+                                data['totals']['queued_only'] = actual_queued
+                                data['totals']['queued_plus_active'] = actual_queued + actual_active
                         
                         return data
                     else:
@@ -139,11 +165,16 @@ class DatabaseClient:
     
     # Worker operations
     async def get_workers(self, status: List[str] = None) -> List[Dict[str, Any]]:
-        """Get workers by status using only database status field."""
+        """Get GPU workers by status using only database status field.
+        
+        Excludes API workers (instance_type='api') which are managed separately
+        and should not be subject to GPU worker heartbeat monitoring.
+        """
         try:
             # Order by created_at DESC to get most recent workers first
             # This ensures we see active/spawning workers within the 1000 row Supabase limit
-            query = self.supabase.table('workers').select('*').order('created_at', desc=True)
+            # Exclude API workers - they have their own lifecycle and don't need GPU monitoring
+            query = self.supabase.table('workers').select('*').neq('instance_type', 'api').order('created_at', desc=True)
             
             if status:
                 # Filter directly by database status - no mapping needed
@@ -558,6 +589,85 @@ class DatabaseClient:
         except Exception as e:
             logger.error(f"Failed to reset stale assigned tasks: {e}")
             return 0
+
+    async def get_worker_task_failure_streak(
+        self, 
+        worker_id: str, 
+        window_minutes: int = 30
+    ) -> Dict[str, Any]:
+        """
+        Get recent task outcomes for a worker to detect failure streaks.
+        
+        Queries system_logs for "Finished task (Success: True/False)" messages
+        to determine if a worker is repeatedly failing tasks.
+        
+        Args:
+            worker_id: The worker ID to check
+            window_minutes: How far back to look for task outcomes
+            
+        Returns:
+            Dict with:
+                - consecutive_failures: Number of consecutive failures from most recent
+                - total_outcomes: Total task outcomes in window
+                - total_failures: Total failures in window
+                - failure_rate: failures / total (0.0 if no outcomes)
+        """
+        try:
+            cutoff_time = datetime.now(timezone.utc) - timedelta(minutes=window_minutes)
+            
+            # Query system_logs for task completion messages from this worker
+            # "Finished task (Success: True)" or "Finished task (Success: False)"
+            result = self.supabase.table('system_logs') \
+                .select('message, timestamp') \
+                .eq('source_id', worker_id) \
+                .ilike('message', '%Finished task%') \
+                .gte('timestamp', cutoff_time.isoformat()) \
+                .order('timestamp', desc=True) \
+                .limit(50) \
+                .execute()
+            
+            if not result.data:
+                return {
+                    'consecutive_failures': 0,
+                    'total_outcomes': 0,
+                    'total_failures': 0,
+                    'failure_rate': 0.0
+                }
+            
+            # Parse outcomes (newest first)
+            outcomes = []
+            for log in result.data:
+                msg = log.get('message', '')
+                success = 'Success: True' in msg
+                outcomes.append(success)
+            
+            # Count consecutive failures from most recent
+            consecutive_failures = 0
+            for success in outcomes:
+                if not success:
+                    consecutive_failures += 1
+                else:
+                    break  # Hit a success, stop counting
+            
+            total_failures = sum(1 for s in outcomes if not s)
+            total_outcomes = len(outcomes)
+            
+            return {
+                'consecutive_failures': consecutive_failures,
+                'total_outcomes': total_outcomes,
+                'total_failures': total_failures,
+                'failure_rate': total_failures / total_outcomes if total_outcomes > 0 else 0.0
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get task failure streak for worker {worker_id}: {e}")
+            # Return safe defaults on error (don't falsely flag worker)
+            return {
+                'consecutive_failures': 0,
+                'total_outcomes': 0,
+                'total_failures': 0,
+                'failure_rate': 0.0
+            }
 
     # Batch operations for efficiency
     async def batch_check_ever_claimed(self, worker_ids: List[str]) -> Dict[str, bool]:

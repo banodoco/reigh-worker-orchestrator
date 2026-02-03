@@ -262,3 +262,95 @@ async def mark_failed(client: httpx.AsyncClient, task_id: str, error_message: st
         logger.error(f"CRITICAL: Failed to mark task {task_id} as failed in database - task may remain stuck!")
         logger.error(f"Error message that failed to save: {error_message}")
     return success
+
+
+async def update_task_metadata(task_id: str, metadata_updates: Dict[str, Any]) -> bool:
+    """
+    Update task metadata (result_data field) to store tracking information.
+    
+    This is used to store fal.ai request IDs and other tracking data
+    that allows recovery if the orchestrator crashes mid-job.
+    
+    Args:
+        task_id: The task ID to update
+        metadata_updates: Dictionary of key-value pairs to merge into result_data
+        
+    Returns:
+        True if successful, False otherwise
+    """
+    from supabase import create_client
+    
+    try:
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not supabase_url or not supabase_key:
+            logger.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for metadata update")
+            return False
+        
+        client = create_client(supabase_url, supabase_key)
+        
+        # First, get the current result_data to merge with
+        result = client.table('tasks').select('result_data').eq('id', task_id).execute()
+        
+        if not result.data:
+            logger.error(f"Task {task_id} not found for metadata update")
+            return False
+        
+        current_data = result.data[0].get('result_data') or {}
+        
+        # Merge the new metadata
+        updated_data = {**current_data, **metadata_updates}
+        
+        # Update the task
+        update_result = client.table('tasks').update({
+            'result_data': updated_data
+        }).eq('id', task_id).execute()
+        
+        if update_result.data:
+            logger.info(f"Updated task {task_id} metadata with: {list(metadata_updates.keys())}")
+            return True
+        else:
+            logger.error(f"Failed to update task {task_id} metadata - no data returned")
+            return False
+            
+    except Exception as e:
+        logger.error(f"Failed to update task {task_id} metadata: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
+
+
+async def get_task_metadata(task_id: str) -> Optional[Dict[str, Any]]:
+    """
+    Get task metadata (result_data field) for recovery purposes.
+    
+    Args:
+        task_id: The task ID to query
+        
+    Returns:
+        The result_data dict if found, None otherwise
+    """
+    from supabase import create_client
+    
+    try:
+        supabase_url = os.getenv("SUPABASE_URL")
+        supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        
+        if not supabase_url or not supabase_key:
+            logger.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY for metadata query")
+            return None
+        
+        client = create_client(supabase_url, supabase_key)
+        
+        result = client.table('tasks').select('result_data').eq('id', task_id).execute()
+        
+        if result.data:
+            return result.data[0].get('result_data') or {}
+        else:
+            logger.warning(f"Task {task_id} not found for metadata query")
+            return None
+            
+    except Exception as e:
+        logger.error(f"Failed to get task {task_id} metadata: {e}")
+        return None

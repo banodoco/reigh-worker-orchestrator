@@ -47,6 +47,10 @@ class OrchestratorConfig:
     max_worker_failure_rate: float
     failure_window_minutes: int
     min_workers_for_rate_check: int
+    
+    # Per-worker task failure detection
+    max_consecutive_task_failures: int  # Restart worker after N consecutive task failures
+    task_failure_window_minutes: int    # Time window to look back for task failures
 
     # Storage monitoring
     storage_check_interval_cycles: int
@@ -121,6 +125,10 @@ class OrchestratorConfig:
             max_worker_failure_rate=float(os.getenv("MAX_WORKER_FAILURE_RATE", "0.8")),
             failure_window_minutes=int(os.getenv("FAILURE_WINDOW_MINUTES", "5")),
             min_workers_for_rate_check=int(os.getenv("MIN_WORKERS_FOR_RATE_CHECK", "5")),
+            
+            # Per-worker task failure detection
+            max_consecutive_task_failures=int(os.getenv("MAX_CONSECUTIVE_TASK_FAILURES", "3")),
+            task_failure_window_minutes=int(os.getenv("TASK_FAILURE_WINDOW_MINUTES", "30")),
 
             # Storage monitoring
             storage_check_interval_cycles=int(os.getenv("STORAGE_CHECK_INTERVAL_CYCLES", "10")),
@@ -152,6 +160,7 @@ class OrchestratorConfig:
         logger.info(f"   Health: startup_grace={self.startup_grace_period_sec}s, not_claiming={self.ready_not_claiming_timeout_sec}s, gpu_not_detected={self.gpu_not_detected_timeout_sec}s")
         logger.info(f"   Promotion: heartbeat_threshold={self.heartbeat_promotion_threshold_sec}s")
         logger.info(f"   Failure protection: max_rate={self.max_worker_failure_rate:.0%}, window={self.failure_window_minutes}m, min_workers={self.min_workers_for_rate_check}")
+        logger.info(f"   Task failure detection: max_consecutive={self.max_consecutive_task_failures}, window={self.task_failure_window_minutes}m")
         logger.info(f"   Storage: check_interval={self.storage_check_interval_cycles} cycles, min_free={self.storage_min_free_gb}GB, max_used={self.storage_max_percent_used}%")
         logger.info(f"   Polling: {self.orchestrator_poll_sec}s")
         logger.info(f"   Auto-start worker: {self.auto_start_worker_process}")

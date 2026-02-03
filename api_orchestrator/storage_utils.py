@@ -289,31 +289,44 @@ async def download_and_upload_to_supabase(client: httpx.AsyncClient, task_id: st
     """
     from .video_utils import is_video_file, extract_first_frame_bytes
     
+    # Video MIME types to check in content-type header
+    VIDEO_MIME_TYPES = {'video/mp4', 'video/avi', 'video/quicktime', 'video/x-msvideo', 
+                        'video/x-matroska', 'video/webm', 'video/x-m4v', 'video/x-flv', 
+                        'video/x-ms-wmv', 'video/mpeg'}
+    
     try:
         # Extract filename from URL
         parsed_url = urlparse(external_url)
         filename = Path(parsed_url.path).name
         
-        # If no filename in URL, create one based on task_id
-        if not filename or filename == '/':
-            # Try to guess extension from Content-Type header
-            head_response = await client.head(external_url, timeout=10)
-            content_type = head_response.headers.get('content-type', 'application/octet-stream')
+        # Download the content and capture content-type
+        logger.info(f"Downloading content from: {external_url}")
+        response = await client.get(external_url, timeout=60)
+        response.raise_for_status()
+        file_data = response.content
+        content_type = response.headers.get('content-type', 'application/octet-stream').split(';')[0].strip().lower()
+        logger.info(f"Downloaded {len(file_data)} bytes, content-type: {content_type}")
+        
+        # If no filename in URL, create one based on task_id and content-type
+        if not filename or filename == '/' or '.' not in filename:
             ext = mimetypes.guess_extension(content_type) or '.bin'
             filename = f"task_{task_id}{ext}"
+            logger.info(f"Generated filename from content-type: {filename}")
         
-        # Download the content
-        file_data = await download_url_content(client, external_url)
+        # Check if this is a video file using BOTH content-type and filename extension
+        is_video = content_type in VIDEO_MIME_TYPES or is_video_file(filename)
         
-        # Check if this is a video file and extract screenshot if requested
+        # Extract screenshot if requested and this is a video
         first_frame_data = None
-        if extract_screenshot and is_video_file(filename):
-            logger.info(f"Video detected ({len(file_data)} bytes), extracting first frame screenshot for task {task_id}")
+        if extract_screenshot and is_video:
+            logger.info(f"Video detected ({len(file_data)} bytes, content-type={content_type}), extracting first frame screenshot for task {task_id}")
             screenshot_bytes = extract_first_frame_bytes(file_data)
             if screenshot_bytes:
                 # Convert to base64 for inclusion in main upload (matching original approach)
                 first_frame_data = base64.b64encode(screenshot_bytes).decode('utf-8')
                 logger.info(f"First frame extracted and will be included in upload")
+            else:
+                logger.warning(f"Failed to extract first frame from video for task {task_id}")
         
         # Upload to Supabase storage (with first frame data if available)
         supabase_url = await upload_to_supabase_storage(

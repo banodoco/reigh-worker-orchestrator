@@ -147,6 +147,11 @@ failure_analysis_report_*.md
 /*test*.py
 *temp*.py
 
+# Node (dev tooling only)
+node_modules/
+package.json
+package-lock.json
+
 # IDE
 .vscode/
 .idea/

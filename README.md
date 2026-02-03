@@ -1,53 +1,34 @@
-# Runpod GPU Worker Orchestrator
+# Headless WGP Orchestrator
 
-A lightweight service that automatically spawns, monitors, and tears down Runpod GPU workers based on task demand tracked in Supabase.
+Manages GPU workers on RunPod and API-based tasks for video generation.
 
-## Quick Start
+## Services
 
-1. Follow the setup checklist in `user_checklist.md`
-2. Copy `env.example` to `.env` and fill in your API keys
-3. Install dependencies: `pip install -r requirements.txt`
-4. Set up database schema: `python scripts/setup_database.py`
-5. Run orchestrator: `python -m gpu_orchestrator.main single`
+- **gpu_orchestrator/** - Spawns, monitors, and terminates RunPod GPU workers based on task demand
+- **api_orchestrator/** - Handles API-based tasks (fal.ai, Wavespeed, image processing)
 
-## Deployment
+## Deploy
 
-See `DEPLOYMENT_GUIDE.md` for comprehensive deployment options. **Recommended**: Simple cloud VM with cron scheduling.
-
-- 🥇 **Most users**: VM + Cron (reliable, simple, ~$5-15/month)
-- 🐳 **Containers**: Docker Compose, AWS ECS, Kubernetes, Google Cloud Run
-- ❌ **Avoid**: Supabase Edge Functions (timeout and reliability issues)
-
-## Project Structure
-
-```
-orchestrator/           # Main orchestrator logic
-├── __init__.py
-├── main.py            # Entry point
-├── database.py        # Supabase helpers
-├── runpod_client.py   # Runpod API wrapper
-└── control_loop.py    # Core orchestration logic
-
-# GPU workers run Headless-Wan2GP (separate repo)
-# See: https://github.com/peteromallet/Headless-Wan2GP
-
-scripts/               # CLI utilities
-├── setup_database.py  # Database schema setup
-├── test_supabase.py   # Connection tests
-├── test_runpod.py     # Runpod API tests
-└── spawn_gpu.py       # Manual GPU spawning
-
-tests/                 # Test suite
-└── test_*.py
+```bash
+./deploy_to_railway.sh          # Deploy both
+./deploy_to_railway.sh --gpu    # GPU orchestrator only
+./deploy_to_railway.sh --api    # API orchestrator only
 ```
 
-## Documentation
+## Debug
 
-- `orchestrator_plan.md` - Detailed implementation plan and architecture
-- `user_checklist.md` - Setup prerequisites and testing steps
+```bash
+python scripts/debug.py task <task_id>      # Investigate a task
+python scripts/debug.py worker <worker_id>  # Check worker status
+python scripts/debug.py health              # System overview
+python scripts/debug.py runpod              # Find orphaned pods
+```
 
-## Development
+## Local Dev
 
-Run tests: `pytest`
-Format code: `black . && isort .`
-Type check: `mypy orchestrator/` 
+```bash
+cp env.example .env  # Fill in credentials
+pip install -r api_orchestrator/requirements.txt
+pip install -r gpu_orchestrator/requirements.txt
+python -m gpu_orchestrator.main continuous
+```
