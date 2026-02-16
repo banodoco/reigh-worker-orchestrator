@@ -6,7 +6,6 @@ with sensible defaults. This replaces scattered os.getenv() calls throughout the
 """
 
 from dataclasses import dataclass
-from typing import Optional
 import os
 import logging
 

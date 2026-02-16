@@ -197,7 +197,7 @@ class DatabaseLogHandler(logging.Handler):
                         file=sys.stderr
                     )
                 
-        except Exception as e:
+        except Exception:
             # Don't let logging errors break the application
             self.handleError(record)
     

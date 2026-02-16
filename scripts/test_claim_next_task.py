@@ -35,7 +35,7 @@ async def test_claim_next_task(worker_id: str = "test-worker-001", dry_run: bool
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     
     if not supabase_url or not supabase_key:
-        print("❌ Missing Supabase credentials")
+        print("❌ Missing Supabase environment configuration")
         print("   Make sure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set")
         return None
     

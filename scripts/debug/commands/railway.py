@@ -3,7 +3,6 @@
 import subprocess
 import json
 from datetime import datetime
-from typing import Optional
 
 
 def run_railway_cmd(args: list[str], cwd: str = None) -> tuple[bool, str]:

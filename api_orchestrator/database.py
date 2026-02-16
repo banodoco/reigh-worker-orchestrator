@@ -27,7 +27,7 @@ class DatabaseClient:
         Uses upsert to handle both new registration and reconnection cases.
         """
         try:
-            result = self.supabase.table('workers').upsert({
+            self.supabase.table('workers').upsert({
                 'id': worker_id,
                 'instance_type': 'api',
                 'status': 'active',
@@ -41,7 +41,6 @@ class DatabaseClient:
         except Exception as e:
             logger.error(f"Failed to register API worker {worker_id}: {e}")
             return False
-
 
 
 

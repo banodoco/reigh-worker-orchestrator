@@ -3,7 +3,6 @@
 SSH into a RunPod worker to check its status directly.
 """
 
-import os
 import sys
 from pathlib import Path
 

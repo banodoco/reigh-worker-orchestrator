@@ -5,7 +5,6 @@ Handles all Supabase database operations using the existing schema.
 
 import os
 import logging
-import json
 import aiohttp
 from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone, timedelta
@@ -46,7 +45,7 @@ class DatabaseClient:
             supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             
             if not supabase_url or not supabase_key:
-                logger.error("Missing Supabase credentials for edge function call")
+                logger.error("Missing Supabase edge-function configuration")
                 return 0
             
             task_counts_url = f"{supabase_url}/functions/v1/task-counts"
@@ -94,7 +93,7 @@ class DatabaseClient:
             supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
             
             if not supabase_url or not supabase_key:
-                logger.error("Missing Supabase credentials for edge function call")
+                logger.error("Missing Supabase edge-function configuration")
                 return {}
             
             task_counts_url = f"{supabase_url}/functions/v1/task-counts"
@@ -234,7 +233,7 @@ class DatabaseClient:
             if runpod_id:
                 metadata['runpod_id'] = runpod_id
             
-            result = self.supabase.table('workers').insert({
+            self.supabase.table('workers').insert({
                 'id': worker_id,
                 'instance_type': instance_type,
                 'status': 'inactive',  # DB status

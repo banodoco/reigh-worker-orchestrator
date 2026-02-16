@@ -26,8 +26,22 @@ try:
 except ImportError:  # pragma: no cover – fallback for runtime without dep
     jsonlogger = None  # type: ignore
 
-# Global reference to database log handler
-_db_log_handler: Optional['DatabaseLogHandler'] = None
+_DB_LOG_HANDLER_ATTR = f"_{__name__.replace('.', '_')}_db_log_handler"
+
+
+def _set_db_log_handler(handler: Optional['DatabaseLogHandler']) -> None:
+    """Persist DB handler on the root logger to avoid mutable module globals."""
+    root_logger = logging.getLogger()
+    if handler is None:
+        if hasattr(root_logger, _DB_LOG_HANDLER_ATTR):
+            delattr(root_logger, _DB_LOG_HANDLER_ATTR)
+        return
+    setattr(root_logger, _DB_LOG_HANDLER_ATTR, handler)
+
+
+def _get_db_log_handler() -> Optional['DatabaseLogHandler']:
+    """Read DB handler from the root logger storage."""
+    return getattr(logging.getLogger(), _DB_LOG_HANDLER_ATTR, None)
 
 
 def setup_logging(db_client=None, source_type: str = "orchestrator_gpu"):
@@ -43,8 +57,6 @@ def setup_logging(db_client=None, source_type: str = "orchestrator_gpu"):
     Returns:
         DatabaseLogHandler instance if database logging is enabled, otherwise None
     """
-    global _db_log_handler
-
     log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
     log_level = getattr(logging, log_level_str, logging.INFO)
 
@@ -97,7 +109,7 @@ def setup_logging(db_client=None, source_type: str = "orchestrator_gpu"):
             db_log_level = getattr(logging, db_log_level_str, logging.INFO)
             
             # Create database handler
-            _db_log_handler = DatabaseLogHandler(
+            db_log_handler = DatabaseLogHandler(
                 supabase_client=db_client.supabase,
                 source_type=source_type,
                 source_id=source_id,
@@ -105,10 +117,11 @@ def setup_logging(db_client=None, source_type: str = "orchestrator_gpu"):
                 flush_interval=float(os.getenv("DB_LOG_FLUSH_INTERVAL", "5.0")),
                 min_level=db_log_level
             )
-            _db_log_handler.setFormatter(_build_formatter("json"))
+            db_log_handler.setFormatter(_build_formatter("json"))
             
             # Add to root logger
-            logging.getLogger().addHandler(_db_log_handler)
+            logging.getLogger().addHandler(db_log_handler)
+            _set_db_log_handler(db_log_handler)
             
             logger = logging.getLogger(__name__)
             logger.info(f"✅ Database logging enabled: {source_id} -> Supabase")
@@ -135,14 +148,14 @@ def setup_logging(db_client=None, source_type: str = "orchestrator_gpu"):
             except Exception as save_error:
                 logger.error(f"   Could not save error to file: {save_error}")
             
-            _db_log_handler = None
+            _set_db_log_handler(None)
             
             # Check if we should fail fast
             if os.getenv("DB_LOGGING_REQUIRED", "false").lower() == "true":
                 logger.error("   DB_LOGGING_REQUIRED=true, orchestrator will exit")
                 raise RuntimeError(f"Database logging is required but failed to initialize: {e}")
     
-    return _db_log_handler
+    return _get_db_log_handler()
 
 
 def _configure_third_party_loggers():
@@ -181,32 +194,36 @@ def _configure_third_party_loggers():
 # ---------------------------------------------------------------------------
 
 def get_db_log_handler():
-    """Get the global database log handler instance."""
-    return _db_log_handler
+    """Get the current database log handler instance."""
+    return _get_db_log_handler()
 
 
 def set_current_cycle(cycle_number: int):
     """Set current cycle number in database log handler for context tracking."""
-    if _db_log_handler:
-        _db_log_handler.set_current_cycle(cycle_number)
+    db_log_handler = _get_db_log_handler()
+    if db_log_handler:
+        db_log_handler.set_current_cycle(cycle_number)
 
 
 def set_current_worker(worker_id: Optional[str]):
     """Set current worker ID in database log handler for context tracking."""
-    if _db_log_handler:
-        _db_log_handler.set_current_worker(worker_id)
+    db_log_handler = _get_db_log_handler()
+    if db_log_handler:
+        db_log_handler.set_current_worker(worker_id)
 
 
 def set_current_task(task_id: Optional[str]):
     """Set current task ID in database log handler for context tracking."""
-    if _db_log_handler:
-        _db_log_handler.set_current_task(task_id)
+    db_log_handler = _get_db_log_handler()
+    if db_log_handler:
+        db_log_handler.set_current_task(task_id)
 
 
 def get_db_logging_stats():
     """Get statistics from database log handler."""
-    if _db_log_handler:
-        return _db_log_handler.get_stats()
+    db_log_handler = _get_db_log_handler()
+    if db_log_handler:
+        return db_log_handler.get_stats()
     return None
 
 

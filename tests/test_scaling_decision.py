@@ -7,58 +7,54 @@ Tests the pure calculate_scaling_decision_pure() function to verify:
 - Double-spawn prevention
 """
 
-import pytest
 from datetime import datetime, timezone, timedelta
-from unittest.mock import MagicMock
 
 from gpu_orchestrator.worker_state import (
     calculate_scaling_decision_pure,
     DerivedWorkerState,
     WorkerLifecycle,
     TaskCounts,
-    ScalingDecision,
 )
 from gpu_orchestrator.config import OrchestratorConfig
 
 
-def make_config(
-    min_active_gpus: int = 0,
-    max_active_gpus: int = 10,
-    machines_to_keep_idle: int = 1,
-    scale_up_multiplier: float = 1.0,
-) -> OrchestratorConfig:
+def make_config(**overrides) -> OrchestratorConfig:
     """Create a config for testing."""
-    return OrchestratorConfig(
-        min_active_gpus=min_active_gpus,
-        max_active_gpus=max_active_gpus,
-        machines_to_keep_idle=machines_to_keep_idle,
-        tasks_per_gpu_threshold=3,
-        scale_up_multiplier=scale_up_multiplier,
-        scale_down_multiplier=0.9,
-        min_scaling_interval_sec=45,
-        spawning_grace_period_sec=180,
-        scale_down_grace_period_sec=60,
-        spawning_timeout_sec=600,
-        gpu_idle_timeout_sec=600,
-        overcapacity_idle_timeout_sec=30,
-        task_stuck_timeout_sec=1200,
-        graceful_shutdown_timeout_sec=600,
-        startup_grace_period_sec=600,
-        ready_not_claiming_timeout_sec=180,
-        gpu_not_detected_timeout_sec=300,
-        heartbeat_promotion_threshold_sec=90,
-        max_worker_failure_rate=0.8,
-        failure_window_minutes=5,
-        min_workers_for_rate_check=5,
-        storage_check_interval_cycles=10,
-        storage_min_free_gb=50,
-        storage_max_percent_used=85,
-        storage_expansion_increment_gb=50,
-        error_cleanup_grace_period_sec=600,
-        orchestrator_poll_sec=30,
-        auto_start_worker_process=True,
-        use_new_scaling_logic=True,
-    )
+    config_values = {
+        "min_active_gpus": 0,
+        "max_active_gpus": 10,
+        "machines_to_keep_idle": 1,
+        "tasks_per_gpu_threshold": 3,
+        "scale_up_multiplier": 1.0,
+        "scale_down_multiplier": 0.9,
+        "min_scaling_interval_sec": 45,
+        "spawning_grace_period_sec": 180,
+        "scale_down_grace_period_sec": 60,
+        "spawning_timeout_sec": 600,
+        "gpu_idle_timeout_sec": 600,
+        "overcapacity_idle_timeout_sec": 30,
+        "task_stuck_timeout_sec": 1200,
+        "graceful_shutdown_timeout_sec": 600,
+        "startup_grace_period_sec": 600,
+        "ready_not_claiming_timeout_sec": 180,
+        "gpu_not_detected_timeout_sec": 300,
+        "heartbeat_promotion_threshold_sec": 90,
+        "max_worker_failure_rate": 0.8,
+        "failure_window_minutes": 5,
+        "min_workers_for_rate_check": 5,
+        "storage_check_interval_cycles": 10,
+        "storage_min_free_gb": 50,
+        "storage_max_percent_used": 85,
+        "storage_expansion_increment_gb": 50,
+        "error_cleanup_grace_period_sec": 600,
+        "orchestrator_poll_sec": 30,
+        "max_consecutive_task_failures": 3,
+        "task_failure_window_minutes": 30,
+        "auto_start_worker_process": True,
+        "use_new_scaling_logic": True,
+    }
+    config_values.update(overrides)
+    return OrchestratorConfig(**config_values)
 
 
 def make_worker_state(

@@ -116,7 +116,7 @@ async def create_test_task():
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     
     if not supabase_url or not supabase_key:
-        print("❌ Supabase credentials not configured")
+        print("❌ Supabase environment configuration is incomplete")
         return
     
     try:

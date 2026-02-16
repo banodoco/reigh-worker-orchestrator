@@ -9,7 +9,8 @@ import sys
 import asyncio
 import json
 import time
-from datetime import datetime, timedelta
+import subprocess
+from datetime import datetime
 from pathlib import Path
 
 # Add project root to path
@@ -21,7 +22,10 @@ from gpu_orchestrator.database import DatabaseClient
 
 def clear_screen():
     """Clear the terminal screen."""
-    os.system('cls' if os.name == 'nt' else 'clear')
+    if os.name == 'nt':
+        subprocess.run(["cmd", "/c", "cls"], check=False)
+    else:
+        subprocess.run(["clear"], check=False)
 
 def format_duration(seconds):
     """Format duration in seconds to human readable format."""
@@ -212,7 +216,7 @@ async def run_dashboard(refresh_interval=10):
         pass
     except Exception as e:
         print(f"❌ Failed to start dashboard: {e}")
-        print("   💡 Make sure your .env file is configured with Supabase credentials")
+        print("   💡 Make sure your .env file has the required database settings")
         sys.exit(1)
     
     finally:

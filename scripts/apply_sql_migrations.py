@@ -68,7 +68,7 @@ def apply_sql_migrations():
                     
                 try:
                     # Execute SQL statement using supabase-py's sql() method
-                    result = supabase.rpc('sql', {'query': statement + ';'})
+                    supabase.rpc('sql', {'query': statement + ';'})
                     print(f"   ✅ Statement {i+1}/{len(statements)} executed")
                 except Exception as stmt_error:
                     # Try alternative method - direct SQL execution
@@ -105,7 +105,7 @@ def apply_sql_migrations():
     for func_name in test_functions:
         try:
             # Try to call the function with dummy parameters to see if it exists
-            result = supabase.rpc(func_name, {'worker_id_param': 'test'} if func_name == 'func_claim_available_task' else {'p_table_name': 'tasks', 'p_worker_id': 'test'})
+            supabase.rpc(func_name, {'worker_id_param': 'test'} if func_name == 'func_claim_available_task' else {'p_table_name': 'tasks', 'p_worker_id': 'test'})
             print(f"   ✅ {func_name} exists and is callable")
         except Exception as e:
             if "does not exist" in str(e) or "not found" in str(e):

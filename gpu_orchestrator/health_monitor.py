@@ -6,7 +6,7 @@ Monitors critical orchestrator health metrics and alerts on anomalies.
 """
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)

@@ -47,7 +47,7 @@ async def count_tasks(client: httpx.AsyncClient, run_type: Optional[str]) -> Dic
         
         headers = _auth_headers()
         if not headers["Authorization"]:
-            logger.error("[TASK_COUNT] Missing authentication token")
+            logger.error("[TASK_COUNT] Missing required request context")
             return {"queued_plus_active": 0, "raw": None}
 
         payload: Dict[str, Any] = {"include_active": False}
@@ -103,12 +103,11 @@ async def claim_next_task(client: httpx.AsyncClient, worker_id: str, run_type: O
     # Enhanced logging for debugging
     logger.debug(f"[TASK_CLAIM] Worker {worker_id} attempting to claim task with run_type: {run_type}")
     logger.debug(f"[TASK_CLAIM] URLs: {urls}")
-    logger.debug(f"[TASK_CLAIM] Has auth header: {bool(headers.get('Authorization'))}")
     
     if not urls["claim"] or not headers["Authorization"]:
         global _missing_env_logged
         if not _missing_env_logged:
-            logger.error(f"[TASK_CLAIM] Missing SUPABASE_URL or token; cannot claim tasks. URLs: {urls}, Auth: {bool(headers.get('Authorization'))}")
+            logger.error("[TASK_CLAIM] Missing endpoint configuration or request context; cannot claim tasks")
             _missing_env_logged = True
         await asyncio.sleep(1)
         return None
@@ -152,7 +151,7 @@ async def mark_complete_via_edge_function(client: httpx.AsyncClient, task_id: st
         headers = _auth_headers()
         
         if not urls["complete"] or not headers["Authorization"]:
-            logger.error(f"Missing mark-task-complete URL or auth token")
+            logger.error("Missing mark-task-complete endpoint configuration or request context")
             return False
             
         payload = {

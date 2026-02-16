@@ -6,10 +6,8 @@ Based on the runpod_repo_setup_agent codebase patterns.
 """
 import os
 import time
-import json
 import requests
 import paramiko
-from dotenv import load_dotenv
 import runpod
 import logging
 from typing import Optional, Dict, Any
@@ -272,6 +270,7 @@ class SSHClient:
             "allow_agent": False,
             "look_for_keys": False,
         }
+        pkey = None
 
         # Try private key from environment variable first (for Railway)
         if self.private_key_content:
@@ -287,7 +286,6 @@ class SSHClient:
                     except Exception:
                         # Fallback to other key types
                         pkey = paramiko.ECDSAKey.from_private_key(StringIO(self.private_key_content))
-                connect_kwargs["pkey"] = pkey
             except Exception as e:
                 raise RuntimeError(f"Failed to load private key from environment variable: {e}") from e
         # Fallback to key file if path is provided and exists
@@ -302,11 +300,12 @@ class SSHClient:
                         pkey = paramiko.RSAKey.from_private_key_file(expanded_key)
                     except Exception:
                         pkey = paramiko.ECDSAKey.from_private_key_file(expanded_key)
-                connect_kwargs["pkey"] = pkey
             except Exception as e:
                 raise RuntimeError(f"Failed to load private key {expanded_key}: {e}") from e
         else:
             connect_kwargs["password"] = self.password
+        if pkey is not None:
+            connect_kwargs["pkey"] = pkey
 
         self.client.connect(**connect_kwargs)
 
@@ -1423,15 +1422,19 @@ echo "=========================================" >> $LOG_FILE 2>&1
         private_key_path_env = os.getenv("RUNPOD_SSH_PRIVATE_KEY_PATH")
         
         logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}] Environment check:")
-        logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}]   - RUNPOD_SSH_PRIVATE_KEY: {'✅ SET' if private_key_env else '❌ MISSING'}")
-        logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}]   - RUNPOD_SSH_PUBLIC_KEY: {'✅ SET' if public_key_env else '❌ MISSING'}")
-        logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}]   - RUNPOD_SSH_PRIVATE_KEY_PATH: {'✅ SET' if private_key_path_env else '❌ MISSING'}")
+        logger.info(
+            f"🔐 SSH_AUTH [Pod {runpod_id}]   - inline material: {'✅ SET' if private_key_env else '❌ MISSING'}"
+        )
+        logger.info(
+            f"🔐 SSH_AUTH [Pod {runpod_id}]   - public material: {'✅ SET' if public_key_env else '❌ MISSING'}"
+        )
+        logger.info(
+            f"🔐 SSH_AUTH [Pod {runpod_id}]   - file material: {'✅ SET' if private_key_path_env else '❌ MISSING'}"
+        )
         
         # Try private key from environment variable first (for Railway)
         if private_key_env:
-            logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}] ✅ Using PRIVATE KEY from environment variable")
-            logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}] Private key length: {len(private_key_env)} chars")
-            logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}] Private key starts with: {private_key_env[:50]}...")
+            logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}] ✅ Using inline material from environment")
             return SSHClient(
                 hostname=ssh_details['ip'],
                 port=ssh_details['port'],
@@ -1441,7 +1444,7 @@ echo "=========================================" >> $LOG_FILE 2>&1
         
         # Fallback to private key file path (for local development)
         if self.ssh_private_key_path and os.path.exists(os.path.expanduser(self.ssh_private_key_path)):
-            logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}] ✅ Using PRIVATE KEY from file path: {self.ssh_private_key_path}")
+            logger.info(f"🔐 SSH_AUTH [Pod {runpod_id}] ✅ Using file-based material")
             return SSHClient(
                 hostname=ssh_details['ip'],
                 port=ssh_details['port'],
@@ -1449,9 +1452,8 @@ echo "=========================================" >> $LOG_FILE 2>&1
                 private_key_path=self.ssh_private_key_path,
             )
         else:
-            logger.warning(f"🔐 SSH_AUTH [Pod {runpod_id}] ⚠️  FALLING BACK to PASSWORD authentication")
-            logger.warning(f"🔐 SSH_AUTH [Pod {runpod_id}] This will likely FAIL as RunPod requires key-based auth")
-            logger.warning(f"🔐 SSH_AUTH [Pod {runpod_id}] Password from RunPod: {ssh_details.get('password', 'runpod')}")
+            logger.warning(f"🔐 SSH_AUTH [Pod {runpod_id}] ⚠️  Falling back to alternate login mode")
+            logger.warning(f"🔐 SSH_AUTH [Pod {runpod_id}] This will likely fail because file-based auth is preferred")
             return SSHClient(
                 hostname=ssh_details['ip'],
                 port=ssh_details['port'],
@@ -1523,6 +1525,7 @@ echo "=========================================" >> $LOG_FILE 2>&1
             elif not isinstance(runtime, dict):
                 logger.warning(f"Pod {runpod_id} runtime is not a dict: {type(runtime)}")
                 runtime = {}
+            runtime.setdefault("ports", [])
             
             # Check if pod is running and has SSH access
             if desired_status == "RUNNING" and runtime.get("ports"):

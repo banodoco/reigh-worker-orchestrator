@@ -390,7 +390,6 @@ async def poll_fal_job(
     start_time = time.time()
     last_progress_log = start_time
     consecutive_errors = 0
-    last_status = FalJobStatus.PENDING
     
     while True:
         elapsed = time.time() - start_time
@@ -410,7 +409,6 @@ async def poll_fal_job(
                 return FalJobStatus.UNKNOWN, {'consecutive_errors': consecutive_errors}
         else:
             consecutive_errors = 0
-            last_status = status
         
         # Log progress periodically
         now = time.time()

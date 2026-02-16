@@ -18,7 +18,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure structured logging before importing internal modules
-from .logging_config import setup_logging, set_current_cycle, get_db_logging_stats
+from .logging_config import setup_logging, get_db_logging_stats
 from .database import DatabaseClient
 
 # Initial setup without database client

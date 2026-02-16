@@ -27,7 +27,7 @@ from .worker_state import (
     calculate_scaling_decision_pure,
 )
 from .database import DatabaseClient
-from .runpod_client import create_runpod_client, spawn_runpod_gpu, terminate_runpod_gpu
+from .runpod_client import create_runpod_client
 from .health_monitor import OrchestratorHealthMonitor
 from .logging_config import set_current_worker
 
@@ -68,21 +68,17 @@ class OrchestratorControlLoop:
     def _log_ssh_config(self):
         """Log SSH configuration for debugging."""
         ssh_private_key = os.getenv("RUNPOD_SSH_PRIVATE_KEY")
-        ssh_public_key = os.getenv("RUNPOD_SSH_PUBLIC_KEY")
         ssh_private_key_path = os.getenv("RUNPOD_SSH_PRIVATE_KEY_PATH")
 
-        logger.info("ENV_VALIDATION SSH Configuration:")
-        logger.info(f"   - RUNPOD_SSH_PRIVATE_KEY: {'SET' if ssh_private_key else 'MISSING'}")
-        logger.info(f"   - RUNPOD_SSH_PUBLIC_KEY: {'SET' if ssh_public_key else 'MISSING'}")
-        logger.info(f"   - RUNPOD_SSH_PRIVATE_KEY_PATH: {'SET' if ssh_private_key_path else 'MISSING'}")
+        logger.info("ENV_VALIDATION: SSH configuration loaded")
 
         if not ssh_private_key and not ssh_private_key_path:
-            logger.error("ENV_VALIDATION CRITICAL: No SSH private key configured!")
+            logger.error("ENV_VALIDATION CRITICAL: No SSH material configured!")
             logger.error("This will cause SSH authentication failures and worker terminations")
         elif ssh_private_key:
-            logger.info(f"Using SSH key from environment variable ({len(ssh_private_key)} chars)")
+            logger.info("Using SSH material from environment variable")
         else:
-            logger.info(f"Using SSH key from file path: {ssh_private_key_path}")
+            logger.info("Using SSH material from configured file path")
 
     # =========================================================================
     # MAIN CYCLE: Coordinates all phases
@@ -771,9 +767,6 @@ class OrchestratorControlLoop:
         summary: CycleSummary
     ) -> None:
         """Reset tasks stuck on failed/terminated workers."""
-        now = datetime.now(timezone.utc)
-        cutoff = now - timedelta(hours=24)
-
         # Find recently failed workers
         failed_ids = []
         for ws in worker_states:
@@ -946,7 +939,6 @@ class OrchestratorControlLoop:
     ) -> None:
         """Spawn or terminate workers based on scaling decision."""
         config = self.config
-        now = datetime.now(timezone.utc)
 
         # Scale down: terminate idle workers
         if decision.should_scale_down:
@@ -1194,7 +1186,7 @@ class OrchestratorControlLoop:
             'worker_id': worker_id,
             'runpod_id': runpod_id,
             'error_reason': reason,
-            'collection_success': False
+            'collection_success': True
         }
 
         logger.info(f"DIAGNOSTICS [Worker {worker_id}] Collecting diagnostic information")
@@ -1242,10 +1234,9 @@ class OrchestratorControlLoop:
                 except Exception as e:
                     diagnostics['pod_status_error'] = str(e)
 
-            diagnostics['collection_success'] = True
-
         except Exception as e:
             logger.error(f"DIAGNOSTICS [Worker {worker_id}] Error collecting: {e}")
+            diagnostics['collection_success'] = False
             diagnostics['collection_error'] = str(e)
 
         return diagnostics

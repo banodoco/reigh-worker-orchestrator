@@ -110,9 +110,9 @@ async def test_ssh_configuration():
         if client.ssh_private_key_path:
             priv_path = os.path.expanduser(client.ssh_private_key_path)
             if os.path.exists(priv_path):
-                print(f"✅ Private key found: {client.ssh_private_key_path}")
+                print("✅ File-based SSH material found")
             else:
-                print(f"❌ Private key not found: {client.ssh_private_key_path}")
+                print("❌ File-based SSH material not found at configured path")
         else:
             print("⚠️  No private key configured")
         
@@ -229,7 +229,6 @@ async def test_configuration():
     try:
         client = create_runpod_client()
         
-        print(f"API Key: {'✅ Set' if client.api_key else '❌ Missing'}")
         print(f"GPU Type: {client.gpu_type}")
         print(f"Worker Image: {client.worker_image}")
         print(f"Disk Size: {client.disk_size_gb}GB")

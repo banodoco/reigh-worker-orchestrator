@@ -8,11 +8,9 @@ import random
 import tempfile
 from typing import Any, Dict, Optional
 
-import fal_client
 import httpx
 
 from .fal_utils import (
-    call_fal_api,
     call_fal_api_resilient,
     build_fal_lora_list,
     FalRequestTracking,
@@ -380,6 +378,12 @@ async def handle_wan_2_2_t2i(
     # Extract orchestrator details or use top-level params
     orchestrator_details = params.get("orchestrator_details", {})
     effective_params = {**params, **orchestrator_details}
+    effective_params.setdefault("character_image_url", "")
+    effective_params.setdefault("mode", "animate")
+    effective_params.setdefault("prompt", "")
+    effective_params.setdefault("resolution", "480p")
+    effective_params.setdefault("seed", -1)
+    effective_params.setdefault("motion_video_url", "")
 
     # Map parameters to Wavespeed API format
     wavespeed_params = {
@@ -429,6 +433,13 @@ async def handle_animate_character(
     # Extract orchestrator details or use top-level params
     orchestrator_details = params.get("orchestrator_details", {})
     effective_params = {**params, **orchestrator_details}
+    effective_params.setdefault("additional_loras", {})
+    effective_params.setdefault("input_image_paths_resolved", [])
+    effective_params.setdefault("base_prompts_expanded", [])
+    effective_params.setdefault("negative_prompts_expanded", [])
+    effective_params.setdefault("base_prompt", "")
+    effective_params.setdefault("duration", 5)
+    effective_params.setdefault("seed_base", -1)
 
     # Map parameters to Wavespeed API format for character animation
     wavespeed_params = {
@@ -527,7 +538,6 @@ async def handle_wan_2_2_i2v(
                         "prompt": prompt,
                         "duration": effective_params.get("duration", 5),
                         "negative_prompt": negative_prompt,
-                        "model_id": "wavespeed-ai/wan-2.2/i2v-480p"
                     }
 
                 # Call Wavespeed for this segment
@@ -699,7 +709,6 @@ async def handle_wan_2_2_i2v(
                 logger.info(f"Using first image: {input_images[0]}")
                 logger.info(f"Using last image (second input): {input_images[1]}")
             else:
-                wavespeed_params["last_image"] = ""
                 logger.info(f"Using single image: {input_images[0] if input_images else 'None'}")
 
         result = await call_wavespeed_api(endpoint_path, wavespeed_params, client)
@@ -972,19 +981,31 @@ async def handle_image_upscale(
     image_url = params.get("image_url") or params.get("image", "")
     # Support both "upscale_factor" and "scale_factor" parameter names
     upscale_factor = params.get("upscale_factor") or params.get("scale_factor", 2)
+    # Noise scale for the generation process (default 0.1)
+    noise_scale = params.get("noise_scale", 0.1)
+    # Output format - normalize "jpeg" to "jpg" for fal API
+    output_format = params.get("output_format", "jpg")
+    if output_format == "jpeg":
+        output_format = "jpg"
+    # Optional seed for reproducibility
+    seed = params.get("seed")
 
     if not image_url:
         logger.error(f"Missing image parameter. Available params: {list(params.keys())}")
         raise Exception("image_url or image parameter is required for image-upscale task")
 
-    logger.info(f"Upscaling image: {image_url} with factor: {upscale_factor}")
+    logger.info(f"Upscaling image: {image_url} with factor: {upscale_factor}, noise_scale: {noise_scale}")
 
     try:
         endpoint = "fal-ai/seedvr/upscale/image"
         fal_args = {
             "image_url": image_url,
-            "upscale_factor": upscale_factor
+            "upscale_factor": upscale_factor,
+            "noise_scale": noise_scale,
+            "output_format": output_format,
         }
+        if seed is not None:
+            fal_args["seed"] = seed
         
         # Check for existing tracking from previous attempt
         existing_tracking = await _get_fal_tracking(task_id)
@@ -1156,14 +1177,12 @@ async def handle_z_image_turbo_i2i(
         "num_images": params.get("num_images", 1),
         "enable_safety_checker": params.get("enable_safety_checker", True),
         "output_format": params.get("output_format", "png"),
+        "acceleration": params.get("acceleration", "none" if loras else "high"),
     }
 
-    # Add acceleration (default "high" for non-LoRA, "none" for LoRA)
+    # Add LoRAs for LoRA endpoint calls.
     if loras:
-        fal_args["acceleration"] = params.get("acceleration", "none")
         fal_args["loras"] = loras
-    else:
-        fal_args["acceleration"] = params.get("acceleration", "high")
 
     # Add optional seed if provided
     seed = params.get("seed")

@@ -1,10 +1,7 @@
-"""Unified debug tool package."""
+"""Unified debug tool package.
 
-from .client import DebugClient
-from .formatters import Formatter
-
-__all__ = ['DebugClient', 'Formatter']
-
+Command entry points live under ``scripts/debug/commands``.
+"""
 
 
 

@@ -59,7 +59,6 @@ class WorkerShutdownManager:
                     'id': worker['id'],
                     'instance_type': worker['instance_type'],
                     'status': orchestrator_status,
-                    'db_status': worker['status'],
                     'created_at': worker['created_at'],
                     'last_heartbeat': worker.get('last_heartbeat'),
                     'metadata': metadata

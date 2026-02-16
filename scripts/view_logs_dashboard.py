@@ -16,6 +16,7 @@ import os
 import sys
 import asyncio
 import time
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -29,7 +30,10 @@ from supabase import create_client
 
 def clear_screen():
     """Clear the terminal screen."""
-    os.system('cls' if os.name == 'nt' else 'clear')
+    if os.name == 'nt':
+        subprocess.run(["cmd", "/c", "cls"], check=False)
+    else:
+        subprocess.run(["clear"], check=False)
 
 
 class LogsDashboard:
@@ -290,7 +294,7 @@ async def run_dashboard(
         pass
     except Exception as e:
         print(f"❌ Failed to start dashboard: {e}")
-        print("   💡 Make sure your .env file is configured with Supabase credentials")
+        print("   💡 Make sure your .env file has the required database settings")
         print("   💡 Make sure the system_logs table exists (run SQL migration)")
         sys.exit(1)
     
@@ -364,7 +368,6 @@ Examples:
 
 if __name__ == "__main__":
     main()
-
 
 
 

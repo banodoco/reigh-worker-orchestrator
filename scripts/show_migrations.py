@@ -2,7 +2,6 @@
 """
 Display SQL migrations for manual execution in Supabase.
 """
-import os
 from pathlib import Path
 
 def show_migrations():

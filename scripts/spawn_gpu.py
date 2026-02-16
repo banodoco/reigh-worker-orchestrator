@@ -8,7 +8,6 @@ import asyncio
 import logging
 import sys
 import os
-from typing import Optional
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -77,7 +76,6 @@ async def spawn_gpu_worker(worker_id: str = None, register_in_db: bool = True):
         if "ssh_details" in result:
             ssh_details = result["ssh_details"]
             print(f"   SSH: {ssh_details['ip']}:{ssh_details['port']}")
-            print(f"   SSH Password: {ssh_details.get('password', 'N/A')}")
             
             # Test SSH connection if possible
             print("\n4. Testing SSH connection...")
@@ -246,7 +244,7 @@ def main():
     spawn_parser.add_argument('--no-db', action='store_true', help='Skip database registration')
     
     # List command
-    list_parser = subparsers.add_parser('list', help='List all workers')
+    subparsers.add_parser('list', help='List all workers')
     
     # Terminate command
     term_parser = subparsers.add_parser('terminate', help='Terminate a worker')
