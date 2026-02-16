@@ -1,6 +1,6 @@
 # Headless WGP Orchestrator
 
-Manages GPU workers on RunPod and API-based tasks for video generation.
+Orchestraotr for [Reigh](https://github.com/banodoco/Reigh). Manages [Reigh Workers](https://github.com/banodoco/Reigh-worker) on RunPod and API-based tasks on Fal and Wavespeed.
 
 ## Scorecard
 
