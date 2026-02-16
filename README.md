@@ -2,6 +2,10 @@
 
 Manages GPU workers on RunPod and API-based tasks for video generation.
 
+## Scorecard
+
+<img src="scorecard.png" width="100%">
+
 ## Services
 
 - **gpu_orchestrator/** - Spawns, monitors, and terminates RunPod GPU workers based on task demand
