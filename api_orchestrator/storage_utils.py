@@ -20,7 +20,7 @@ async def download_url_content(client: httpx.AsyncClient, url: str) -> bytes:
     """Download content from a URL and return as bytes."""
     try:
         logger.info(f"Downloading content from: {url}")
-        response = await client.get(url, timeout=60)
+        response = await client.get(url, timeout=300)
         response.raise_for_status()
         
         content = response.content
@@ -300,8 +300,9 @@ async def download_and_upload_to_supabase(client: httpx.AsyncClient, task_id: st
         filename = Path(parsed_url.path).name
         
         # Download the content and capture content-type
+        # 300s timeout: large videos (1080p, 90s+) can be 50-100MB+
         logger.info(f"Downloading content from: {external_url}")
-        response = await client.get(external_url, timeout=60)
+        response = await client.get(external_url, timeout=300)
         response.raise_for_status()
         file_data = response.content
         content_type = response.headers.get('content-type', 'application/octet-stream').split(';')[0].strip().lower()

@@ -9,8 +9,10 @@ import logging
 from typing import Any, Dict, Optional
 
 import httpx
+from supabase import create_client
 
 logger = logging.getLogger(__name__)
+_MISSING_ENV_LOGGED_ATTR = "_task_utils_missing_env_logged"
 
 
 def _get_supabase_edge_urls() -> Dict[str, str]:
@@ -30,6 +32,14 @@ def _auth_headers() -> Dict[str, str]:
         "Authorization": f"Bearer {token}" if token else "",
         "Content-Type": "application/json",
     }
+
+
+def _has_logged_missing_env() -> bool:
+    return bool(getattr(logger, _MISSING_ENV_LOGGED_ATTR, False))
+
+
+def _set_logged_missing_env() -> None:
+    setattr(logger, _MISSING_ENV_LOGGED_ATTR, True)
 
 
 async def count_tasks(client: httpx.AsyncClient, run_type: Optional[str]) -> Dict[str, Any]:
@@ -62,11 +72,7 @@ async def count_tasks(client: httpx.AsyncClient, run_type: Optional[str]) -> Dic
         
         if resp.status_code != 200:
             logger.warning(f"[TASK_COUNT] Task counts failed with status {resp.status_code}")
-            try:
-                error_text = resp.text
-                logger.error(f"[TASK_COUNT] Error response: {error_text}")
-            except:
-                pass
+            logger.error(f"[TASK_COUNT] Error response: {resp.text}")
             return {"queued_plus_active": 0, "raw": None}
             
         data = resp.json()
@@ -87,12 +93,9 @@ async def count_tasks(client: httpx.AsyncClient, run_type: Optional[str]) -> Dic
         logger.info(f"[TASK_COUNT] Available tasks: {available_count}")
         return {"queued_plus_active": available_count, "raw": data}
         
-    except Exception as e:
-        logger.error(f"Count tasks failed: {e}")
+    except (httpx.HTTPError, TypeError, ValueError) as exc:
+        logger.error(f"Count tasks failed: {exc}")
         return {"queued_plus_active": 0, "raw": None}
-
-
-_missing_env_logged = False
 
 
 async def claim_next_task(client: httpx.AsyncClient, worker_id: str, run_type: Optional[str]) -> Optional[Dict[str, Any]]:
@@ -105,10 +108,9 @@ async def claim_next_task(client: httpx.AsyncClient, worker_id: str, run_type: O
     logger.debug(f"[TASK_CLAIM] URLs: {urls}")
     
     if not urls["claim"] or not headers["Authorization"]:
-        global _missing_env_logged
-        if not _missing_env_logged:
+        if not _has_logged_missing_env():
             logger.error("[TASK_CLAIM] Missing endpoint configuration or request context; cannot claim tasks")
-            _missing_env_logged = True
+            _set_logged_missing_env()
         await asyncio.sleep(1)
         return None
 
@@ -136,57 +138,72 @@ async def claim_next_task(client: httpx.AsyncClient, worker_id: str, run_type: O
         # The run_type filtering is handled by the edge function
             
         return data
-    except Exception as exc:
+    except (httpx.HTTPError, TypeError, ValueError) as exc:
         logger.error(f"[TASK_CLAIM] Worker {worker_id}: Claim failed with error: {exc}")
-        if hasattr(exc, 'response') and hasattr(exc.response, 'text'):
+        if isinstance(exc, httpx.HTTPStatusError):
             logger.error(f"[TASK_CLAIM] Response body: {exc.response.text}")
         await asyncio.sleep(0.5)
         return None
 
 
 async def mark_complete_via_edge_function(client: httpx.AsyncClient, task_id: str, output_location: str = None) -> bool:
-    """Mark task complete via mark-task-complete edge function (for cases without file upload)"""
+    """Mark task complete via edge function.
+
+    Uses complete_task when no output_location is provided (file upload handled separately),
+    or update-task-status when we only have an output_location URL (e.g. fallback to external URL
+    after upload failure). The complete_task endpoint requires file_data or storage_path, so
+    passing just an output_location would fail with 400.
+    """
     try:
-        urls = _get_supabase_edge_urls()
         headers = _auth_headers()
-        
-        if not urls["complete"] or not headers["Authorization"]:
-            logger.error("Missing mark-task-complete endpoint configuration or request context")
+
+        if not headers["Authorization"]:
+            logger.error("Missing request context for mark-task-complete")
             return False
-            
-        payload = {
-            "task_id": task_id
-        }
+
+        supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+
         if output_location:
-            payload["output_location"] = output_location
-            
-        logger.info(f"Attempting to mark task {task_id} complete via {urls['complete']}")
+            # Use update-task-status for URL-only completion (complete_task requires file data)
+            edge_url = f"{supabase_url}/functions/v1/update-task-status" if supabase_url else ""
+            payload = {
+                "task_id": task_id,
+                "status": "Completed",
+                "output_location": output_location
+            }
+        else:
+            urls = _get_supabase_edge_urls()
+            edge_url = urls["complete"]
+            payload = {"task_id": task_id}
+
+        if not edge_url:
+            logger.error("Missing edge function URL configuration")
+            return False
+
+        logger.info(f"Attempting to mark task {task_id} complete via {edge_url}")
         logger.debug(f"Payload: {payload}")
-        
-        resp = await client.post(urls["complete"], json=payload, headers=headers, timeout=30)
-        
+
+        resp = await client.post(edge_url, json=payload, headers=headers, timeout=30)
+
         # Log response details for debugging
         logger.info(f"Mark complete response: status={resp.status_code}, headers={dict(resp.headers)}")
         if resp.status_code != 200:
             response_text = resp.text
             logger.error(f"Mark complete failed with status {resp.status_code}: {response_text}")
-            
+
         resp.raise_for_status()
-        
+
         # Log response body for successful requests too
         try:
             response_json = resp.json()
             logger.info(f"Task {task_id} marked complete successfully: {response_json}")
-        except:
+        except ValueError:
             logger.info(f"Task {task_id} marked complete (no JSON response)")
-            
+
         return True
-        
-    except Exception as exc:
+
+    except (httpx.HTTPError, TypeError, ValueError) as exc:
         logger.error(f"Failed to mark task {task_id} complete: {exc}")
-        logger.error(f"Exception type: {type(exc).__name__}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
         return False
 
 
@@ -200,7 +217,7 @@ async def mark_failed_via_edge_function(client: httpx.AsyncClient, task_id: str,
         )
         
         if not edge_url:
-            logger.error(f"No update-task-status edge URL configured")
+            logger.error("No update-task-status edge URL configured")
             return False
             
         headers = {
@@ -231,16 +248,13 @@ async def mark_failed_via_edge_function(client: httpx.AsyncClient, task_id: str,
         try:
             response_json = resp.json()
             logger.info(f"Task {task_id} marked failed successfully: {response_json}")
-        except:
+        except ValueError:
             logger.info(f"Task {task_id} marked failed (no JSON response)")
             
         return True
         
-    except Exception as exc:
+    except (httpx.HTTPError, TypeError, ValueError) as exc:
         logger.error(f"Failed to mark task {task_id} as failed: {exc}")
-        logger.error(f"Exception type: {type(exc).__name__}")
-        import traceback
-        logger.error(f"Full traceback: {traceback.format_exc()}")
         return False
 
 
@@ -277,8 +291,6 @@ async def update_task_metadata(task_id: str, metadata_updates: Dict[str, Any]) -
     Returns:
         True if successful, False otherwise
     """
-    from supabase import create_client
-    
     try:
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -313,10 +325,8 @@ async def update_task_metadata(task_id: str, metadata_updates: Dict[str, Any]) -
             logger.error(f"Failed to update task {task_id} metadata - no data returned")
             return False
             
-    except Exception as e:
-        logger.error(f"Failed to update task {task_id} metadata: {e}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
+    except Exception as exc:
+        logger.exception(f"Failed to update task {task_id} metadata: {exc}")
         return False
 
 
@@ -330,8 +340,6 @@ async def get_task_metadata(task_id: str) -> Optional[Dict[str, Any]]:
     Returns:
         The result_data dict if found, None otherwise
     """
-    from supabase import create_client
-    
     try:
         supabase_url = os.getenv("SUPABASE_URL")
         supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
@@ -350,6 +358,6 @@ async def get_task_metadata(task_id: str) -> Optional[Dict[str, Any]]:
             logger.warning(f"Task {task_id} not found for metadata query")
             return None
             
-    except Exception as e:
-        logger.error(f"Failed to get task {task_id} metadata: {e}")
+    except Exception as exc:
+        logger.error(f"Failed to get task {task_id} metadata: {exc}")
         return None
