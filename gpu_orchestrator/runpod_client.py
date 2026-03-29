@@ -979,10 +979,10 @@ echo "✅ Jupyter Lab started (PID: $JUPYTER_PID)"
 cd "$WORKDIR" || exit 1
 
 # Ensure core system dependencies exist (needed for venv + video processing)
-echo "Installing system dependencies (python3.10-venv ffmpeg git curl wget)..."
+echo "Installing system dependencies (python3.10-venv python3.10-dev ffmpeg git curl wget)..."
 # Use explicit logs for postmortem; command output also goes to $LOG_FILE via exec/tee.
 apt_retry "apt-get update" 300 bash -lc "apt-get -o Dpkg::Use-Pty=0 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 update > '$APT_UPDATE_LOG' 2>&1"
-apt_retry "apt-get install" 600 bash -lc "apt-get -o Dpkg::Use-Pty=0 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y python3.10-venv ffmpeg git curl wget > '$APT_INSTALL_LOG' 2>&1"
+apt_retry "apt-get install" 600 bash -lc "apt-get -o Dpkg::Use-Pty=0 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y python3.10-venv python3.10-dev ffmpeg git curl wget > '$APT_INSTALL_LOG' 2>&1"
 echo "✅ System dependencies installed"
 
 # Check if venv exists, if not create it and install dependencies
