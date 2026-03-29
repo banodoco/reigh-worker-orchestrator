@@ -235,7 +235,14 @@ def derive_worker_state(
     elif lifecycle in (WorkerLifecycle.SPAWNING_POD_PENDING,
                        WorkerLifecycle.SPAWNING_SCRIPT_PENDING,
                        WorkerLifecycle.SPAWNING_SCRIPT_RUNNING):
-        if not in_startup_phase and worker_age_sec > config.spawning_timeout_sec:
+        # Max 30 min for startup phase (pip install on fresh volume).
+        # Without this, a hung startup script would never be killed.
+        max_startup_phase_sec = 1800
+        if in_startup_phase and worker_age_sec > max_startup_phase_sec:
+            should_terminate = True
+            termination_reason = f"Startup phase exceeded maximum ({worker_age_sec:.0f}s > {max_startup_phase_sec}s)"
+            error_code = "STARTUP_PHASE_TIMEOUT"
+        elif not in_startup_phase and worker_age_sec > config.spawning_timeout_sec:
             should_terminate = True
             termination_reason = f"Spawning timeout ({worker_age_sec:.0f}s)"
             error_code = "SPAWNING_TIMEOUT"
