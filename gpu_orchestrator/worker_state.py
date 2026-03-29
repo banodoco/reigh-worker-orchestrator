@@ -175,7 +175,8 @@ def derive_worker_state(
         vram_reported=vram_reported,
         ready_for_tasks=ready_for_tasks,
         script_launched=metadata.get('startup_script_launched', False),
-        config=config
+        config=config,
+        startup_phase=metadata.get('startup_phase'),
     )
 
     # Determine termination conditions
@@ -281,7 +282,8 @@ def _determine_lifecycle(
     vram_reported: bool,
     ready_for_tasks: bool,
     script_launched: bool,
-    config: 'OrchestratorConfig'
+    config: 'OrchestratorConfig',
+    startup_phase: Optional[str] = None,
 ) -> WorkerLifecycle:
     """Map signals to lifecycle state."""
 
@@ -298,8 +300,13 @@ def _determine_lifecycle(
         if heartbeat_age_sec is not None and heartbeat_age_sec > config.gpu_idle_timeout_sec:
             return WorkerLifecycle.ACTIVE_STALE
 
-        # Not stale => active. VRAM determines sub-state.
-        # TODO: Once worker sends ready_for_tasks=true, add that check here
+        # Not stale => active. Use startup_phase + VRAM to determine sub-state.
+        # Workers signal progress via metadata.startup_phase:
+        #   deps_installing → deps_verified → worker_starting → (worker enters poll loop)
+        # Until the startup script finishes, treat as INITIALIZING even if
+        # VRAM is reported (guardian heartbeats start before worker is ready).
+        if startup_phase in ('deps_installing', 'deps_verified', 'worker_starting'):
+            return WorkerLifecycle.ACTIVE_INITIALIZING
         if vram_reported:
             if vram_total == 0:
                 return WorkerLifecycle.ACTIVE_GPU_NOT_DETECTED

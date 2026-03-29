@@ -887,6 +887,40 @@ trap 'echo "❌ SCRIPT FAILED at line $LINENO with exit code $? at $(date -Iseco
       echo "--- tail $APT_INSTALL_LOG"; tail -200 "$APT_INSTALL_LOG" 2>/dev/null || true; \
       exit 1' ERR
 
+# Signal startup phase to orchestrator via Supabase REST.
+# Reads current metadata, merges in startup_phase, writes back.
+# The orchestrator reads metadata.startup_phase to distinguish
+# "still setting up" from "ready but not claiming".
+update_worker_phase() {{
+    local phase="$1"
+    local key="$SUPABASE_SERVICE_ROLE_KEY"
+    [ -z "$key" ] && return 0
+    # Read current metadata, merge phase, write back
+    local current
+    current=$(curl -s -m 5 \
+        "${{SUPABASE_URL}}/rest/v1/workers?id=eq.${{WORKER_ID}}&select=metadata" \
+        -H "Authorization: Bearer $key" \
+        -H "apikey: $key" 2>/dev/null) || return 0
+    # Use python to merge (one-liner, no braces in output)
+    local merged
+    merged=$(python3 -c "
+import json, sys
+rows = json.loads(sys.argv[1]) if sys.argv[1] else []
+meta = rows[0].get('metadata', {{}}) if rows else {{}}
+meta['startup_phase'] = sys.argv[2]
+print(json.dumps({{'metadata': meta}}))
+" "$current" "$phase" 2>/dev/null) || return 0
+    curl -s -m 5 -X PATCH \
+        "${{SUPABASE_URL}}/rest/v1/workers?id=eq.${{WORKER_ID}}" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $key" \
+        -H "apikey: $key" \
+        -H "Prefer: return=minimal" \
+        -d "$merged" \
+        > /dev/null 2>&1 || true
+    echo "📡 Phase: $phase"
+}}
+
 # Apt helper with timeouts/retries (prevents indefinite hangs)
 apt_retry() {{
     local name="$1"
@@ -1067,6 +1101,7 @@ echo "Python version: $(python --version)" >> $LOG_FILE 2>&1
 #      the correct version. If any mismatch, force reinstall and re-verify.
 #   This catches: stale caches, partial failures, version conflicts, downgrades.
 # =============================================================================
+update_worker_phase "deps_installing"
 echo "=== DEPENDENCY UPDATE ===" >> $LOG_FILE 2>&1
 
 MAIN_REQS_HASH=$(md5sum requirements.txt 2>/dev/null | cut -d' ' -f1 || echo "none")
@@ -1163,6 +1198,7 @@ else
 fi
 
 # Validate all critical imports before starting worker
+update_worker_phase "deps_verified"
 echo "=== VALIDATING IMPORTS ===" >> $LOG_FILE 2>&1
 python << 'VALIDATE_EOF' >> $LOG_FILE 2>&1
 import sys
@@ -1231,6 +1267,7 @@ echo "SUPABASE_ANON_KEY: ${{SUPABASE_ANON_KEY:0:20}}..." >> $LOG_FILE 2>&1
 echo "SUPABASE_SERVICE_ROLE_KEY: ${{SUPABASE_SERVICE_ROLE_KEY:0:20}}..." >> $LOG_FILE 2>&1
 
 # Start the actual worker process
+update_worker_phase "worker_starting"
 echo "=== STARTING MAIN WORKER ===" >> $LOG_FILE 2>&1
 PRELOAD_FLAG="{'' if has_pending_tasks else '--preload-model wan_2_2_i2v_lightning_baseline_2_2_2'}"
 WORKER_CMD="python worker.py --supabase-url $SUPABASE_URL --supabase-access-token $SUPABASE_SERVICE_ROLE_KEY --worker $WORKER_ID --debug $PRELOAD_FLAG --wgp-profile 1"
