@@ -1074,17 +1074,23 @@ echo "Cached requirements hash: $CACHED_HASH" >> $LOG_FILE 2>&1
 
 if [ "$CURRENT_HASH" != "$CACHED_HASH" ]; then
     echo "Requirements changed! Installing/upgrading Python deps..." >> $LOG_FILE 2>&1
-    python -m pip install --upgrade -r requirements.txt >> $LOG_FILE 2>&1 || echo "WARNING: pip install failed" >> $LOG_FILE 2>&1
-    
+    DEPS_OK=true
+    python -m pip install --upgrade -r requirements.txt >> $LOG_FILE 2>&1 || {{ echo "WARNING: pip install failed" >> $LOG_FILE 2>&1; DEPS_OK=false; }}
+
     # Also install subfolder requirements if present
     if [ -f Wan2GP/requirements.txt ]; then
         echo "Installing subfolder requirements from Wan2GP/requirements.txt" >> $LOG_FILE 2>&1
-        python -m pip install --upgrade -r Wan2GP/requirements.txt >> $LOG_FILE 2>&1 || echo "WARNING: subfolder pip install failed" >> $LOG_FILE 2>&1
+        python -m pip install --upgrade -r Wan2GP/requirements.txt >> $LOG_FILE 2>&1 || {{ echo "WARNING: subfolder pip install failed" >> $LOG_FILE 2>&1; DEPS_OK=false; }}
     fi
-    
-    # Save new hash
-    echo "$CURRENT_HASH" > venv/.requirements_hash
-    echo "✅ Dependencies updated, hash saved" >> $LOG_FILE 2>&1
+
+    # Only cache the hash if ALL installs succeeded — otherwise next
+    # startup will re-attempt the install instead of silently skipping it.
+    if [ "$DEPS_OK" = true ]; then
+        echo "$CURRENT_HASH" > venv/.requirements_hash
+        echo "✅ Dependencies updated, hash saved" >> $LOG_FILE 2>&1
+    else
+        echo "⚠️  Dependencies partially failed — hash NOT saved (will retry next startup)" >> $LOG_FILE 2>&1
+    fi
 else
     echo "✅ Requirements unchanged, skipping pip install" >> $LOG_FILE 2>&1
 fi
