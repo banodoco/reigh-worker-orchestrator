@@ -226,7 +226,7 @@ def derive_worker_state(
                 error_code = "GPU_READY_IDLE_WITH_QUEUE"
 
     elif lifecycle == WorkerLifecycle.ACTIVE_INITIALIZING:
-        if queued_count > 0 and not has_ever_claimed:
+        if queued_count > 0 and not has_ever_claimed and not in_startup_phase:
             if effective_age_sec > config.startup_grace_period_sec:
                 should_terminate = True
                 termination_reason = f"Never initialized after startup grace period ({effective_age_sec:.0f}s)"
