@@ -113,7 +113,7 @@ class OrchestratorConfig:
 
             # Health check timeouts
             startup_grace_period_sec=int(os.getenv("STARTUP_GRACE_PERIOD_SEC", "600")),
-            ready_not_claiming_timeout_sec=int(os.getenv("READY_NOT_CLAIMING_TIMEOUT_SEC", "180")),
+            ready_not_claiming_timeout_sec=int(os.getenv("READY_NOT_CLAIMING_TIMEOUT_SEC", "600")),
             gpu_not_detected_timeout_sec=int(os.getenv("GPU_NOT_DETECTED_TIMEOUT_SEC", "300")),
             heartbeat_promotion_threshold_sec=int(os.getenv(
                 "HEARTBEAT_PROMOTION_THRESHOLD_SEC",
