@@ -171,8 +171,10 @@ class OrchestratorControlLoop:
 
     async def _fetch_current_state(self) -> Tuple[List[Dict], TaskCounts, Optional[Dict]]:
         """Fetch workers and task counts from database. Returns (workers, task_counts, detailed_counts)."""
-        # Get ALL workers for comprehensive health checks
-        workers = await self.db.get_workers()
+        # Only fetch non-terminated workers. Terminated workers don't need
+        # lifecycle checks, and including them bloats .in_() batch queries
+        # past PostgREST URL limits, causing silent 400 errors.
+        workers = await self.db.get_workers(status=["spawning", "active", "error"])
 
         # Get detailed task counts from edge function
         detailed_counts = await self.db.get_detailed_task_counts_via_edge_function()
