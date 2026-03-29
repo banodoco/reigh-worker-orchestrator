@@ -1101,34 +1101,22 @@ fi
 echo "=== VERIFYING INSTALLED VERSIONS ===" >> $LOG_FILE 2>&1
 VERIFY_EXIT=0
 python << 'VERIFY_DEPS_EOF' >> $LOG_FILE 2>&1 || VERIFY_EXIT=$?
-import re, sys
-from importlib.metadata import version, PackageNotFoundError
+import re, sys, importlib.metadata
 from pathlib import Path
-
 req_files = [f for f in ["requirements.txt", "Wan2GP/requirements.txt"] if Path(f).exists()]
-pin_re = re.compile(r'^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)')
-mismatches = []
+pin_re = re.compile(r"^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)")
+bad = []
 for rf in req_files:
     for line in Path(rf).read_text().splitlines():
         m = pin_re.match(line.strip())
-        if not m:
-            continue
-        pkg, required = m.group(1), m.group(2)
-        # Normalize: pip uses hyphens and underscores interchangeably
-        lookup = pkg.replace("_", "-")
-        try:
-            installed = version(lookup)
-        except PackageNotFoundError:
-            installed = "missing"
-        if installed != required:
-            mismatches.append((pkg, installed, required))
-if mismatches:
-    for pkg, got, want in mismatches:
-        print(f"MISMATCH {pkg}: installed={got} required={want}")
-    sys.exit(1)
-else:
-    print("All pinned packages verified OK")
-    sys.exit(0)
+        if not m: continue
+        name, want = m.group(1), m.group(2)
+        try: got = importlib.metadata.version(name.replace("_", "-"))
+        except Exception: got = "missing"
+        if got != want: bad.append((name, got, want))
+for name, got, want in bad:
+    print("MISMATCH " + name + ": installed=" + got + " required=" + want)
+sys.exit(1 if bad else 0)
 VERIFY_DEPS_EOF
 
 if [ "$VERIFY_EXIT" -ne 0 ]; then
@@ -1138,29 +1126,23 @@ if [ "$VERIFY_EXIT" -ne 0 ]; then
     # Re-verify after reinstall
     REVERIFY_EXIT=0
     python << 'REVERIFY_EOF' >> $LOG_FILE 2>&1 || REVERIFY_EXIT=$?
-import re, sys
-from importlib.metadata import version, PackageNotFoundError
+import re, sys, importlib.metadata
 from pathlib import Path
-
 req_files = [f for f in ["requirements.txt", "Wan2GP/requirements.txt"] if Path(f).exists()]
-pin_re = re.compile(r'^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)')
-ok = True
+pin_re = re.compile(r"^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)")
+bad = []
 for rf in req_files:
     for line in Path(rf).read_text().splitlines():
         m = pin_re.match(line.strip())
-        if not m:
-            continue
-        pkg, required = m.group(1), m.group(2)
-        try:
-            installed = version(pkg.replace("_", "-"))
-        except PackageNotFoundError:
-            installed = "missing"
-        if installed != required:
-            print(f"STILL MISMATCHED {pkg}: installed={installed} required={required}")
-            ok = False
-if ok:
-    print("All packages now at correct versions")
-sys.exit(0 if ok else 1)
+        if not m: continue
+        name, want = m.group(1), m.group(2)
+        try: got = importlib.metadata.version(name.replace("_", "-"))
+        except Exception: got = "missing"
+        if got != want: bad.append((name, got, want))
+for name, got, want in bad:
+    print("STILL MISMATCHED " + name + ": installed=" + got + " required=" + want)
+if not bad: print("All packages now at correct versions")
+sys.exit(1 if bad else 0)
 REVERIFY_EOF
 
     if [ "$REVERIFY_EXIT" -ne 0 ]; then
