@@ -235,7 +235,7 @@ def derive_worker_state(
     elif lifecycle in (WorkerLifecycle.SPAWNING_POD_PENDING,
                        WorkerLifecycle.SPAWNING_SCRIPT_PENDING,
                        WorkerLifecycle.SPAWNING_SCRIPT_RUNNING):
-        if worker_age_sec > config.spawning_timeout_sec:
+        if not in_startup_phase and worker_age_sec > config.spawning_timeout_sec:
             should_terminate = True
             termination_reason = f"Spawning timeout ({worker_age_sec:.0f}s)"
             error_code = "SPAWNING_TIMEOUT"
