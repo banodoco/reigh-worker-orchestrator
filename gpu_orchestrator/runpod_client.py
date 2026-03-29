@@ -1063,10 +1063,9 @@ echo "Python version: $(python --version)" >> $LOG_FILE 2>&1
 # =============================================================================
 # Strategy:
 #   1. Hash-based check: skip pip install if requirements files haven't changed
-#   2. Verify: after install (or skip), check that pinned packages are actually
-#      installed at the correct version. If not, force reinstall.
-#   This catches: stale caches, partial failures, version conflicts, and
-#   any other reason the installed state doesn't match requirements.
+#   2. Verify: single Python script checks every pinned package is installed at
+#      the correct version. If any mismatch, force reinstall and re-verify.
+#   This catches: stale caches, partial failures, version conflicts, downgrades.
 # =============================================================================
 echo "=== DEPENDENCY UPDATE ===" >> $LOG_FILE 2>&1
 
@@ -1098,54 +1097,82 @@ else
     INSTALL_OK=true
 fi
 
-# Verify installed packages match pinned versions from requirements files.
-# This is the real gate — catches stale caches, partial failures, downgrades.
+# Verify installed packages match pinned versions (single Python process).
 echo "=== VERIFYING INSTALLED VERSIONS ===" >> $LOG_FILE 2>&1
-VERIFY_FAILED=false
-for reqfile in requirements.txt Wan2GP/requirements.txt; do
-    [ -f "$reqfile" ] || continue
-    # Check each pinned package (lines like "package==1.2.3")
-    while IFS= read -r line; do
-        # Skip comments, empty lines, options, unpinned packages
-        echo "$line" | grep -qE '^[a-zA-Z].*==' || continue
-        PKG=$(echo "$line" | sed 's/==.*//; s/\[.*\]//')
-        REQUIRED_VER=$(echo "$line" | sed 's/.*==//')
-        INSTALLED_VER=$(python -c "import importlib.metadata; print(importlib.metadata.version('$PKG'))" 2>/dev/null || echo "missing")
-        if [ "$INSTALLED_VER" != "$REQUIRED_VER" ]; then
-            echo "❌ $PKG: installed=$INSTALLED_VER required=$REQUIRED_VER" >> $LOG_FILE 2>&1
-            VERIFY_FAILED=true
-        fi
-    done < "$reqfile"
-done
+VERIFY_EXIT=0
+python << 'VERIFY_DEPS_EOF' >> $LOG_FILE 2>&1 || VERIFY_EXIT=$?
+import re, sys
+from importlib.metadata import version, PackageNotFoundError
+from pathlib import Path
 
-if [ "$VERIFY_FAILED" = true ]; then
+req_files = [f for f in ["requirements.txt", "Wan2GP/requirements.txt"] if Path(f).exists()]
+pin_re = re.compile(r'^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)')
+mismatches = []
+for rf in req_files:
+    for line in Path(rf).read_text().splitlines():
+        m = pin_re.match(line.strip())
+        if not m:
+            continue
+        pkg, required = m.group(1), m.group(2)
+        # Normalize: pip uses hyphens and underscores interchangeably
+        lookup = pkg.replace("_", "-")
+        try:
+            installed = version(lookup)
+        except PackageNotFoundError:
+            installed = "missing"
+        if installed != required:
+            mismatches.append((pkg, installed, required))
+if mismatches:
+    for pkg, got, want in mismatches:
+        print(f"MISMATCH {pkg}: installed={got} required={want}")
+    sys.exit(1)
+else:
+    print("All pinned packages verified OK")
+    sys.exit(0)
+VERIFY_DEPS_EOF
+
+if [ "$VERIFY_EXIT" -ne 0 ]; then
     echo "⚠️  Version mismatches detected, forcing reinstall..." >> $LOG_FILE 2>&1
     INSTALL_OK=$(install_requirements)
-    # Re-check the critical ones
-    STILL_BAD=false
-    for reqfile in requirements.txt Wan2GP/requirements.txt; do
-        [ -f "$reqfile" ] || continue
-        while IFS= read -r line; do
-            echo "$line" | grep -qE '^[a-zA-Z].*==' || continue
-            PKG=$(echo "$line" | sed 's/==.*//; s/\[.*\]//')
-            REQUIRED_VER=$(echo "$line" | sed 's/.*==//')
-            INSTALLED_VER=$(python -c "import importlib.metadata; print(importlib.metadata.version('$PKG'))" 2>/dev/null || echo "missing")
-            if [ "$INSTALLED_VER" != "$REQUIRED_VER" ]; then
-                echo "❌ STILL MISMATCHED after reinstall: $PKG installed=$INSTALLED_VER required=$REQUIRED_VER" >> $LOG_FILE 2>&1
-                STILL_BAD=true
-            fi
-        done < "$reqfile"
-    done
-    if [ "$STILL_BAD" = true ]; then
+
+    # Re-verify after reinstall
+    REVERIFY_EXIT=0
+    python << 'REVERIFY_EOF' >> $LOG_FILE 2>&1 || REVERIFY_EXIT=$?
+import re, sys
+from importlib.metadata import version, PackageNotFoundError
+from pathlib import Path
+
+req_files = [f for f in ["requirements.txt", "Wan2GP/requirements.txt"] if Path(f).exists()]
+pin_re = re.compile(r'^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)')
+ok = True
+for rf in req_files:
+    for line in Path(rf).read_text().splitlines():
+        m = pin_re.match(line.strip())
+        if not m:
+            continue
+        pkg, required = m.group(1), m.group(2)
+        try:
+            installed = version(pkg.replace("_", "-"))
+        except PackageNotFoundError:
+            installed = "missing"
+        if installed != required:
+            print(f"STILL MISMATCHED {pkg}: installed={installed} required={required}")
+            ok = False
+if ok:
+    print("All packages now at correct versions")
+sys.exit(0 if ok else 1)
+REVERIFY_EOF
+
+    if [ "$REVERIFY_EXIT" -ne 0 ]; then
         echo "❌ Some packages could not be installed at required versions" >> $LOG_FILE 2>&1
+        INSTALL_OK=false
     else
-        echo "✅ All packages now at correct versions" >> $LOG_FILE 2>&1
-        INSTALL_OK=true
+        VERIFY_EXIT=0
     fi
 fi
 
 # Only cache hash when installed state is verified correct
-if [ "$INSTALL_OK" = true ] && [ "$VERIFY_FAILED" != true ]; then
+if [ "$INSTALL_OK" != false ] && [ "$VERIFY_EXIT" -eq 0 ]; then
     echo "$CURRENT_HASH" > venv/.requirements_hash
     echo "✅ Dependencies verified, hash cached" >> $LOG_FILE 2>&1
 else
