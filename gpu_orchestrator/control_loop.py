@@ -1586,6 +1586,14 @@ class OrchestratorControlLoop:
             if worker['status'] == 'terminated':
                 continue
 
+            # Skip workers that are actively running the startup script.
+            # They signal progress via metadata.startup_phase and may not
+            # have a heartbeat yet (guardian starts after deps install).
+            metadata = worker.get('metadata') or {}
+            startup_phase = metadata.get('startup_phase')
+            if startup_phase in ('deps_installing', 'deps_verified', 'worker_starting'):
+                continue
+
             cutoff = spawning_cutoff if worker['status'] == 'spawning' else active_cutoff
 
             last_heartbeat = worker.get('last_heartbeat')
