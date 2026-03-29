@@ -63,6 +63,7 @@ class DerivedWorkerState:
     vram_used_mb: Optional[int]
     vram_reported: bool               # Has VRAM data been reported?
     ready_for_tasks: bool             # Worker explicitly signaled readiness
+    in_startup_phase: bool
     has_ever_claimed_task: bool
     has_active_task: bool
 
@@ -136,6 +137,7 @@ def derive_worker_state(
     metadata = worker.get('metadata', {}) or {}
     db_status = worker['status']
     runpod_id = metadata.get('runpod_id')
+    startup_phase = metadata.get('startup_phase')
 
     # Parse timestamps
     created_at = _parse_timestamp(worker.get('created_at')) or now
@@ -156,6 +158,7 @@ def derive_worker_state(
 
     # Ready for tasks flag - explicit signal from worker that it can claim tasks
     ready_for_tasks = metadata.get('ready_for_tasks', False)
+    in_startup_phase = startup_phase in ('deps_installing', 'deps_verified', 'worker_starting')
 
     # Heartbeat flags
     # Note: The workers table has DEFAULT NOW() for last_heartbeat, so newly created
@@ -176,7 +179,7 @@ def derive_worker_state(
         ready_for_tasks=ready_for_tasks,
         script_launched=metadata.get('startup_script_launched', False),
         config=config,
-        startup_phase=metadata.get('startup_phase'),
+        startup_phase=startup_phase,
     )
 
     # Determine termination conditions
@@ -262,6 +265,7 @@ def derive_worker_state(
         vram_used_mb=vram_used,
         vram_reported=vram_reported,
         ready_for_tasks=ready_for_tasks,
+        in_startup_phase=in_startup_phase,
         has_ever_claimed_task=has_ever_claimed,
         has_active_task=has_active_task,
         is_gpu_broken=is_gpu_broken,

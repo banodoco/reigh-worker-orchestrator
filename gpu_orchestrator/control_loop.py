@@ -494,6 +494,7 @@ class OrchestratorControlLoop:
             try:
                 set_current_worker(ws.worker_id)
                 worker_id = ws.worker_id
+                worker: Optional[Dict[str, Any]] = None
 
                 # Check termination conditions from derived state
                 if ws.should_terminate:
@@ -519,14 +520,6 @@ class OrchestratorControlLoop:
 
                 # If worker has active task - validate heartbeat
                 if ws.has_active_task:
-                    if not ws.has_heartbeat:
-                        logger.warning(f"[WORKER_HEALTH] Worker {worker_id}: No heartbeat with active tasks")
-                        worker = await self.db.get_worker_by_id(worker_id)
-                        if worker:
-                            await self._mark_worker_error(worker, 'No heartbeat with active tasks')
-                            summary.workers_failed += 1
-                        continue
-
                     logger.debug(f"Worker {worker_id} has active tasks and heartbeat ({ws.heartbeat_age_sec:.0f}s old)")
 
                 # Worker has no active task - check idle conditions
@@ -537,29 +530,11 @@ class OrchestratorControlLoop:
 
                     # CRITICAL: Check if worker is idle while tasks are queued
                     if task_counts.queued > 0:
-                        # Worker should be claiming tasks but isn't
-                        if ws.has_heartbeat and ws.heartbeat_age_sec is not None:
-                            # Has recent heartbeat but not claiming - check timeout
-                            if ws.heartbeat_age_sec > self.config.gpu_idle_timeout_sec:
-                                logger.warning(f"[WORKER_HEALTH] Worker {worker_id}: Idle with stale heartbeat ({ws.heartbeat_age_sec:.0f}s) while {task_counts.queued} tasks queued")
-                                await self._mark_worker_error(worker, f'Idle with tasks queued (heartbeat age: {ws.heartbeat_age_sec:.0f}s)')
-                                summary.workers_failed += 1
-                                continue
-                            else:
-                                # Fresh heartbeat but not claiming - perform basic health check
-                                if not await self._perform_basic_health_check(worker):
-                                    logger.warning(f"[WORKER_HEALTH] Worker {worker_id}: Failed basic health check with tasks queued")
-                                    await self._mark_worker_error(worker, 'Failed basic health check with tasks queued')
-                                    summary.workers_failed += 1
-                                    continue
-                        else:
-                            # No heartbeat while tasks are queued
-                            worker_age = (datetime.now(timezone.utc) - datetime.fromisoformat(worker['created_at'].replace('Z', '+00:00'))).total_seconds()
-                            if worker_age > self.config.gpu_idle_timeout_sec:
-                                logger.warning(f"[WORKER_HEALTH] Worker {worker_id}: No heartbeat ({worker_age:.0f}s old) with {task_counts.queued} tasks queued")
-                                await self._mark_worker_error(worker, 'No heartbeat or activity with tasks queued')
-                                summary.workers_failed += 1
-                                continue
+                        if not await self._perform_basic_health_check(worker):
+                            logger.warning(f"[WORKER_HEALTH] Worker {worker_id}: Failed basic health check with tasks queued")
+                            await self._mark_worker_error(worker, 'Failed basic health check with tasks queued')
+                            summary.workers_failed += 1
+                            continue
 
                     # No tasks queued - check idle timeout for potential scale-down
                     else:
@@ -584,8 +559,8 @@ class OrchestratorControlLoop:
                     logger.info(f"Worker {worker_id}: GPU not detected yet ({ws.effective_age_sec:.0f}s / {self.config.gpu_not_detected_timeout_sec}s)")
 
                 # Perform basic health check for idle workers with fresh heartbeat
-                if not ws.has_active_task and ws.heartbeat_is_recent:
-                    if not await self._perform_basic_health_check(worker if 'worker' in dir() else await self.db.get_worker_by_id(worker_id)):
+                if not ws.has_active_task and ws.heartbeat_is_recent and worker:
+                    if not await self._perform_basic_health_check(worker):
                         logger.warning(f"[WORKER_HEALTH] Worker {worker_id}: Failed basic health check")
 
                 # Check for stuck tasks
@@ -1057,13 +1032,7 @@ class OrchestratorControlLoop:
         await self._check_storage_health(active_workers, periodic_summary)
 
         # Failsafe stale worker check
-        all_workers = []
-        for ws in worker_states:
-            worker = await self.db.get_worker_by_id(ws.worker_id)
-            if worker:
-                all_workers.append(worker)
-
-        await self._failsafe_stale_worker_check(all_workers, periodic_summary)
+        await self._failsafe_stale_worker_check(worker_states, periodic_summary)
 
         # Copy results back to the main summary
         summary.tasks_reset += periodic_summary['actions'].get('tasks_reset', 0)
@@ -1574,50 +1543,36 @@ class OrchestratorControlLoop:
                 except Exception as e:
                     logger.error(f"[ERROR_CLEANUP] Failed to cleanup legacy error worker {worker_id}: {e}")
 
-    async def _failsafe_stale_worker_check(self, workers: List[Dict[str, Any]], summary: Dict[str, Any]) -> None:
+    async def _failsafe_stale_worker_check(self, worker_states: List[DerivedWorkerState], summary: Dict[str, Any]) -> None:
         """Failsafe check for workers with very stale heartbeats."""
         now = datetime.now(timezone.utc)
-        active_cutoff = now - timedelta(seconds=self.config.gpu_idle_timeout_sec)
-        spawning_cutoff = now - timedelta(seconds=self.config.spawning_timeout_sec)
+        stale_workers: List[Tuple[DerivedWorkerState, float]] = []
 
-        stale_workers = []
-
-        for worker in workers:
-            if worker['status'] == 'terminated':
+        for ws in worker_states:
+            if ws.is_terminal:
                 continue
 
-            # Skip workers that are actively running the startup script.
-            # They signal progress via metadata.startup_phase and may not
-            # have a heartbeat yet (guardian starts after deps install).
-            metadata = worker.get('metadata') or {}
-            startup_phase = metadata.get('startup_phase')
-            if startup_phase in ('deps_installing', 'deps_verified', 'worker_starting'):
+            if ws.in_startup_phase:
                 continue
 
-            cutoff = spawning_cutoff if worker['status'] == 'spawning' else active_cutoff
+            if ws.should_terminate:
+                continue
 
-            last_heartbeat = worker.get('last_heartbeat')
-            if last_heartbeat:
-                try:
-                    heartbeat_dt = datetime.fromisoformat(last_heartbeat.replace('Z', '+00:00'))
-                    if heartbeat_dt < cutoff:
-                        stale_workers.append(worker)
-                except Exception:
-                    pass
-            else:
-                try:
-                    created_dt = datetime.fromisoformat(worker['created_at'].replace('Z', '+00:00'))
-                    if created_dt < cutoff:
-                        stale_workers.append(worker)
-                except Exception:
-                    pass
+            cutoff_sec = self.config.spawning_timeout_sec if ws.is_spawning else self.config.gpu_idle_timeout_sec
+            age = ws.heartbeat_age_sec if ws.has_heartbeat else ws.effective_age_sec
+            if age is not None and age > cutoff_sec:
+                stale_workers.append((ws, age))
 
-        for worker in stale_workers:
-            worker_id = worker['id']
-            logger.warning(f"FAILSAFE: Worker {worker_id} has stale heartbeat")
+        for ws, age_sec in stale_workers:
+            worker_id = ws.worker_id
+            logger.warning(f"FAILSAFE: Worker {worker_id} has stale heartbeat ({age_sec:.0f}s)")
 
             try:
-                runpod_id = worker.get('metadata', {}).get('runpod_id')
+                worker = await self.db.get_worker_by_id(worker_id)
+                if not worker:
+                    continue
+
+                runpod_id = ws.runpod_id
                 if runpod_id:
                     pod_status = self.runpod.get_pod_status(runpod_id)
                     if pod_status and pod_status.get('desired_status') not in ['TERMINATED', 'FAILED']:
@@ -1628,7 +1583,7 @@ class OrchestratorControlLoop:
                     summary['actions']['tasks_reset'] = summary['actions'].get('tasks_reset', 0) + reset_count
 
                 metadata_update = {
-                    'error_reason': f"FAILSAFE: Stale heartbeat with status {worker['status']}",
+                    'error_reason': f"FAILSAFE: Stale heartbeat with status {ws.db_status}",
                     'error_time': now.isoformat()
                 }
                 await self.db.update_worker_status(worker_id, 'terminated', metadata_update)

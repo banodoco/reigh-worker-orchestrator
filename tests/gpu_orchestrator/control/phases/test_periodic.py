@@ -1,0 +1,54 @@
+import asyncio
+from dataclasses import replace
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock
+
+from gpu_orchestrator.control.phases import periodic
+from tests.scaling_decision_helpers import make_config, make_worker_state
+from gpu_orchestrator.worker_state import WorkerLifecycle
+
+
+def test_periodic_phase_mixin_exists():
+    assert hasattr(periodic, "PeriodicChecksMixin")
+
+
+def test_failsafe_skips_startup_phase_workers():
+    startup_state = replace(
+        make_worker_state(
+            worker_id="worker-startup",
+            lifecycle=WorkerLifecycle.SPAWNING_SCRIPT_RUNNING,
+            in_startup_phase=True,
+        ),
+        db_status="active",
+        effective_age_sec=9999,
+        heartbeat_age_sec=None,
+        has_heartbeat=False,
+        heartbeat_is_recent=False,
+        ready_for_tasks=False,
+        vram_total_mb=None,
+        vram_used_mb=None,
+        vram_reported=False,
+    )
+
+    class Host(periodic.PeriodicChecksMixin):
+        def __init__(self):
+            self.config = make_config(spawning_timeout_sec=60, gpu_idle_timeout_sec=60)
+            self.db = SimpleNamespace(
+                get_worker_by_id=AsyncMock(return_value=None),
+                reset_orphaned_tasks=AsyncMock(return_value=0),
+                get_workers=AsyncMock(return_value=[]),
+            )
+            self.runpod = Mock()
+            self.cycle_count = 1
+            self.last_storage_check_cycle = 0
+
+    host = Host()
+    summary = {"actions": {"tasks_reset": 0, "workers_failed": 0, "workers_terminated": 0}}
+
+    asyncio.run(host._failsafe_stale_worker_check([startup_state], summary))
+
+    host.db.get_worker_by_id.assert_not_awaited()
+    host.db.reset_orphaned_tasks.assert_not_awaited()
+    host.runpod.get_pod_status.assert_not_called()
+    host.runpod.terminate_worker.assert_not_called()
+    assert summary["actions"] == {"tasks_reset": 0, "workers_failed": 0, "workers_terminated": 0}
