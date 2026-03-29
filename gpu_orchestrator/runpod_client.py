@@ -1058,52 +1058,100 @@ echo "Virtual env activated: $VIRTUAL_ENV" >> $LOG_FILE 2>&1
 echo "Python path: $(which python)" >> $LOG_FILE 2>&1
 echo "Python version: $(python --version)" >> $LOG_FILE 2>&1
 
-# Update Python dependencies only if requirements.txt changed (hash-based check)
-echo "=== DEPENDENCY UPDATE (hash-based) ===" >> $LOG_FILE 2>&1
+# =============================================================================
+# DEPENDENCY MANAGEMENT
+# =============================================================================
+# Strategy:
+#   1. Hash-based check: skip pip install if requirements files haven't changed
+#   2. Verify: after install (or skip), check that pinned packages are actually
+#      installed at the correct version. If not, force reinstall.
+#   This catches: stale caches, partial failures, version conflicts, and
+#   any other reason the installed state doesn't match requirements.
+# =============================================================================
+echo "=== DEPENDENCY UPDATE ===" >> $LOG_FILE 2>&1
 
-# Compute current hash of requirements files
 MAIN_REQS_HASH=$(md5sum requirements.txt 2>/dev/null | cut -d' ' -f1 || echo "none")
 SUB_REQS_HASH=$(md5sum Wan2GP/requirements.txt 2>/dev/null | cut -d' ' -f1 || echo "none")
 CURRENT_HASH="${{MAIN_REQS_HASH}}_${{SUB_REQS_HASH}}"
-
-# Load cached hash (stored in venv to persist across restarts)
 CACHED_HASH=$(cat venv/.requirements_hash 2>/dev/null || echo "")
 
 echo "Current requirements hash: $CURRENT_HASH" >> $LOG_FILE 2>&1
 echo "Cached requirements hash: $CACHED_HASH" >> $LOG_FILE 2>&1
 
-if [ "$CURRENT_HASH" != "$CACHED_HASH" ]; then
-    echo "Requirements changed! Installing/upgrading Python deps..." >> $LOG_FILE 2>&1
-    DEPS_OK=true
-    python -m pip install --upgrade -r requirements.txt >> $LOG_FILE 2>&1 || {{ echo "WARNING: pip install failed" >> $LOG_FILE 2>&1; DEPS_OK=false; }}
-
-    # Also install subfolder requirements if present
+install_requirements() {{
+    echo "Installing Python dependencies..." >> $LOG_FILE 2>&1
+    local ok=true
+    python -m pip install --upgrade -r requirements.txt >> $LOG_FILE 2>&1 || ok=false
     if [ -f Wan2GP/requirements.txt ]; then
-        echo "Installing subfolder requirements from Wan2GP/requirements.txt" >> $LOG_FILE 2>&1
-        python -m pip install --upgrade -r Wan2GP/requirements.txt >> $LOG_FILE 2>&1 || {{ echo "WARNING: subfolder pip install failed" >> $LOG_FILE 2>&1; DEPS_OK=false; }}
+        python -m pip install --upgrade -r Wan2GP/requirements.txt >> $LOG_FILE 2>&1 || ok=false
     fi
+    # Supplementary packages not in requirements files
+    python -m pip install --quiet GitPython smplfitter s3tokenizer conformer >> $LOG_FILE 2>&1 || true
+    echo "$ok"
+}}
 
-    # Only cache the hash if ALL installs succeeded — otherwise next
-    # startup will re-attempt the install instead of silently skipping it.
-    if [ "$DEPS_OK" = true ]; then
-        echo "$CURRENT_HASH" > venv/.requirements_hash
-        echo "✅ Dependencies updated, hash saved" >> $LOG_FILE 2>&1
-    else
-        echo "⚠️  Dependencies partially failed — hash NOT saved (will retry next startup)" >> $LOG_FILE 2>&1
-    fi
+if [ "$CURRENT_HASH" != "$CACHED_HASH" ]; then
+    echo "Requirements changed, installing..." >> $LOG_FILE 2>&1
+    INSTALL_OK=$(install_requirements)
 else
-    echo "✅ Requirements unchanged, skipping pip install" >> $LOG_FILE 2>&1
+    echo "Requirements unchanged, skipping install" >> $LOG_FILE 2>&1
+    INSTALL_OK=true
 fi
 
-# Install all known missing packages from Headless-Wan2GP requirements.txt
-echo "=== INSTALLING CRITICAL PACKAGES ===" >> $LOG_FILE 2>&1
-python -m pip install --quiet \
-    mmgp==3.6.10 \
-    GitPython \
-    smplfitter \
-    s3tokenizer \
-    conformer \
-    >> $LOG_FILE 2>&1 || echo "WARNING: some critical package installs failed" >> $LOG_FILE 2>&1
+# Verify installed packages match pinned versions from requirements files.
+# This is the real gate — catches stale caches, partial failures, downgrades.
+echo "=== VERIFYING INSTALLED VERSIONS ===" >> $LOG_FILE 2>&1
+VERIFY_FAILED=false
+for reqfile in requirements.txt Wan2GP/requirements.txt; do
+    [ -f "$reqfile" ] || continue
+    # Check each pinned package (lines like "package==1.2.3")
+    while IFS= read -r line; do
+        # Skip comments, empty lines, options, unpinned packages
+        echo "$line" | grep -qE '^[a-zA-Z].*==' || continue
+        PKG=$(echo "$line" | sed 's/==.*//; s/\[.*\]//')
+        REQUIRED_VER=$(echo "$line" | sed 's/.*==//')
+        INSTALLED_VER=$(python -c "import importlib.metadata; print(importlib.metadata.version('$PKG'))" 2>/dev/null || echo "missing")
+        if [ "$INSTALLED_VER" != "$REQUIRED_VER" ]; then
+            echo "❌ $PKG: installed=$INSTALLED_VER required=$REQUIRED_VER" >> $LOG_FILE 2>&1
+            VERIFY_FAILED=true
+        fi
+    done < "$reqfile"
+done
+
+if [ "$VERIFY_FAILED" = true ]; then
+    echo "⚠️  Version mismatches detected, forcing reinstall..." >> $LOG_FILE 2>&1
+    INSTALL_OK=$(install_requirements)
+    # Re-check the critical ones
+    STILL_BAD=false
+    for reqfile in requirements.txt Wan2GP/requirements.txt; do
+        [ -f "$reqfile" ] || continue
+        while IFS= read -r line; do
+            echo "$line" | grep -qE '^[a-zA-Z].*==' || continue
+            PKG=$(echo "$line" | sed 's/==.*//; s/\[.*\]//')
+            REQUIRED_VER=$(echo "$line" | sed 's/.*==//')
+            INSTALLED_VER=$(python -c "import importlib.metadata; print(importlib.metadata.version('$PKG'))" 2>/dev/null || echo "missing")
+            if [ "$INSTALLED_VER" != "$REQUIRED_VER" ]; then
+                echo "❌ STILL MISMATCHED after reinstall: $PKG installed=$INSTALLED_VER required=$REQUIRED_VER" >> $LOG_FILE 2>&1
+                STILL_BAD=true
+            fi
+        done < "$reqfile"
+    done
+    if [ "$STILL_BAD" = true ]; then
+        echo "❌ Some packages could not be installed at required versions" >> $LOG_FILE 2>&1
+    else
+        echo "✅ All packages now at correct versions" >> $LOG_FILE 2>&1
+        INSTALL_OK=true
+    fi
+fi
+
+# Only cache hash when installed state is verified correct
+if [ "$INSTALL_OK" = true ] && [ "$VERIFY_FAILED" != true ]; then
+    echo "$CURRENT_HASH" > venv/.requirements_hash
+    echo "✅ Dependencies verified, hash cached" >> $LOG_FILE 2>&1
+else
+    rm -f venv/.requirements_hash
+    echo "⚠️  Dependencies not fully correct — hash cleared for retry next startup" >> $LOG_FILE 2>&1
+fi
 
 # Validate all critical imports before starting worker
 echo "=== VALIDATING IMPORTS ===" >> $LOG_FILE 2>&1
