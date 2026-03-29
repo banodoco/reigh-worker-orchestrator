@@ -191,7 +191,21 @@ def derive_worker_state(
     is_not_claiming = False
     is_stale = False
 
-    if lifecycle == WorkerLifecycle.ACTIVE_STALE:
+    # ─── STARTUP PHASE GUARD ───────────────────────────────────────────
+    # Workers signaling a startup phase (deps_installing, deps_verified,
+    # worker_starting) are still setting up. The ONLY timeout that applies
+    # is a 30-min safety net. All other checks are skipped.
+    # This is the single gate — individual timeout paths below do NOT
+    # need to check in_startup_phase.
+    max_startup_phase_sec = 1800
+    if in_startup_phase:
+        if worker_age_sec > max_startup_phase_sec:
+            should_terminate = True
+            termination_reason = f"Startup phase exceeded maximum ({worker_age_sec:.0f}s > {max_startup_phase_sec}s)"
+            error_code = "STARTUP_PHASE_TIMEOUT"
+
+    # ─── NORMAL TIMEOUT CHECKS ─────────────────────────────────────────
+    elif lifecycle == WorkerLifecycle.ACTIVE_STALE:
         is_stale = True
         if has_active_task:
             should_terminate = True
@@ -217,8 +231,6 @@ def derive_worker_state(
                 termination_reason = f"GPU ready but never claimed tasks ({effective_age_sec:.0f}s)"
                 error_code = "GPU_READY_NOT_CLAIMING"
         elif queued_count > 0 and not has_active_task and has_ever_claimed:
-            # Worker claimed before but is now idle with tasks waiting.
-            # Use the same timeout — if it's not picking up work, it's stuck.
             if effective_age_sec > config.ready_not_claiming_timeout_sec:
                 is_not_claiming = True
                 should_terminate = True
@@ -226,7 +238,7 @@ def derive_worker_state(
                 error_code = "GPU_READY_IDLE_WITH_QUEUE"
 
     elif lifecycle == WorkerLifecycle.ACTIVE_INITIALIZING:
-        if queued_count > 0 and not has_ever_claimed and not in_startup_phase:
+        if queued_count > 0 and not has_ever_claimed:
             if effective_age_sec > config.startup_grace_period_sec:
                 should_terminate = True
                 termination_reason = f"Never initialized after startup grace period ({effective_age_sec:.0f}s)"
@@ -235,14 +247,7 @@ def derive_worker_state(
     elif lifecycle in (WorkerLifecycle.SPAWNING_POD_PENDING,
                        WorkerLifecycle.SPAWNING_SCRIPT_PENDING,
                        WorkerLifecycle.SPAWNING_SCRIPT_RUNNING):
-        # Max 30 min for startup phase (pip install on fresh volume).
-        # Without this, a hung startup script would never be killed.
-        max_startup_phase_sec = 1800
-        if in_startup_phase and worker_age_sec > max_startup_phase_sec:
-            should_terminate = True
-            termination_reason = f"Startup phase exceeded maximum ({worker_age_sec:.0f}s > {max_startup_phase_sec}s)"
-            error_code = "STARTUP_PHASE_TIMEOUT"
-        elif not in_startup_phase and worker_age_sec > config.spawning_timeout_sec:
+        if worker_age_sec > config.spawning_timeout_sec:
             should_terminate = True
             termination_reason = f"Spawning timeout ({worker_age_sec:.0f}s)"
             error_code = "SPAWNING_TIMEOUT"
