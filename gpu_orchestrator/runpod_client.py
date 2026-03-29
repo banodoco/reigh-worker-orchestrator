@@ -1115,10 +1115,12 @@ echo "Cached requirements hash: $CACHED_HASH" >> $LOG_FILE 2>&1
 install_requirements() {{
     echo "Installing Python dependencies..." >> $LOG_FILE 2>&1
     local ok=true
-    python -m pip install --upgrade -r requirements.txt >> $LOG_FILE 2>&1 || ok=false
+    # Install Wan2GP first — it has strict version pins (==) that must win.
+    # requirements.txt has flexible ranges (>=) that accommodate them.
     if [ -f Wan2GP/requirements.txt ]; then
         python -m pip install --upgrade -r Wan2GP/requirements.txt >> $LOG_FILE 2>&1 || ok=false
     fi
+    python -m pip install --upgrade -r requirements.txt >> $LOG_FILE 2>&1 || ok=false
     # Supplementary packages not in requirements files
     python -m pip install --quiet GitPython smplfitter s3tokenizer conformer >> $LOG_FILE 2>&1 || true
     echo "$ok"
