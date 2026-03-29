@@ -13,6 +13,10 @@ from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
 
+# Max worker IDs per .in_() filter to stay within PostgREST URL length limits.
+# Worker IDs are ~40 chars; 10 keeps the query well under the limit.
+_IN_CHUNK_SIZE = 10
+
 class DatabaseClient:
     """Database client for orchestrator operations."""
     
@@ -255,7 +259,7 @@ class DatabaseClient:
             try:
                 result = self.supabase.table('workers').select('metadata').eq('id', worker_id).single().execute()
                 metadata = result.data.get('metadata') or {} if result.data else {}
-            except:
+            except Exception:
                 metadata = {}
             
             # Mirror the main status into orchestrator_status for consistency
@@ -360,6 +364,20 @@ class DatabaseClient:
         except Exception as e:
             logger.error(f"Failed to get running tasks for worker {worker_id}: {e}")
             return []
+
+    @staticmethod
+    def _build_task_reset_payload(error_message: str, attempts: Optional[int] = None) -> Dict[str, Any]:
+        """Build a consistent payload for task reset updates."""
+        payload: Dict[str, Any] = {
+            'status': 'Queued',
+            'worker_id': None,
+            'generation_started_at': None,
+            'generation_processed_at': None,
+            'error_message': error_message,
+        }
+        if attempts is not None:
+            payload['attempts'] = attempts
+        return payload
     
     async def reset_orphaned_tasks(self, failed_worker_ids: List[str]) -> int:
         """Reset tasks from failed workers back to queued status (includes orchestrator tasks with assigned workers)."""
@@ -383,13 +401,9 @@ class DatabaseClient:
             task_ids = [task['id'] for task in tasks_result.data]
             orchestrator_task_count = sum(1 for task in tasks_result.data if '_orchestrator' in task.get('task_type', '').lower())
             
-            reset_result = self.supabase.table('tasks').update({
-                'status': 'Queued',
-                'worker_id': None,
-                'generation_started_at': None,
-                'generation_processed_at': None,
-                'error_message': 'Reset - orphaned from failed worker'
-            }).in_('id', task_ids).execute()
+            reset_result = self.supabase.table('tasks').update(
+                self._build_task_reset_payload('Reset - orphaned from failed worker')
+            ).in_('id', task_ids).execute()
             
             count = len(reset_result.data) if reset_result.data else 0
             
@@ -443,13 +457,9 @@ class DatabaseClient:
             task_ids = [task['id'] for task in non_orchestrator_tasks]
             
             # Reset these tasks back to Queued status (only if attempts < 3)
-            reset_result = self.supabase.table('tasks').update({
-                'status': 'Queued',
-                'worker_id': None,
-                'generation_started_at': None,
-                'generation_processed_at': None,
-                'error_message': 'Reset - stuck in progress with no worker assigned'
-            }).in_('id', task_ids).lt('attempts', 3).execute()
+            reset_result = self.supabase.table('tasks').update(
+                self._build_task_reset_payload('Reset - stuck in progress with no worker assigned')
+            ).in_('id', task_ids).lt('attempts', 3).execute()
             
             count = len(reset_result.data) if reset_result.data else 0
             
@@ -496,14 +506,12 @@ class DatabaseClient:
                 new_attempts = current_attempts + 1
                 
                 try:
-                    reset_result = self.supabase.table('tasks').update({
-                        'status': 'Queued',
-                        'worker_id': None,
-                        'generation_started_at': None,
-                        'generation_processed_at': None,
-                        'attempts': new_attempts,
-                        'error_message': f'Reset - orphaned from API worker timeout (attempt {new_attempts}/3)'
-                    }).eq('id', task_id).execute()
+                    reset_result = self.supabase.table('tasks').update(
+                        self._build_task_reset_payload(
+                            f'Reset - orphaned from API worker timeout (attempt {new_attempts}/3)',
+                            attempts=new_attempts,
+                        )
+                    ).eq('id', task_id).execute()
                     
                     if reset_result.data:
                         count += 1
@@ -553,18 +561,25 @@ class DatabaseClient:
             if not result.data:
                 return 0
             
-            # Filter out orchestrator tasks - they can run for extended periods
-            non_orchestrator_tasks = [
-                task for task in result.data 
-                if '_orchestrator' not in task.get('task_type', '').lower()
-            ]
+            # Orchestrator tasks get a longer timeout (2 hours) since they
+            # coordinate multi-step pipelines, but they're not exempt — a stuck
+            # orchestrator blocks the queue just like any other task.
+            orchestrator_cutoff = datetime.now(timezone.utc) - timedelta(hours=2)
+
+            task_ids = []
+            for task in result.data:
+                is_orchestrator = '_orchestrator' in task.get('task_type', '').lower()
+                if is_orchestrator:
+                    # Check against the longer orchestrator cutoff
+                    task_updated = task.get('updated_at', '')
+                    if task_updated and task_updated < orchestrator_cutoff.isoformat():
+                        task_ids.append(task['id'])
+                else:
+                    task_ids.append(task['id'])
             
-            if not non_orchestrator_tasks:
-                logger.debug(f"Found {len(result.data)} stale tasks, but all are orchestrator tasks - skipping reset")
+            if not task_ids:
                 return 0
-            
-            task_ids = [task['id'] for task in non_orchestrator_tasks]
-            
+
             # Reset these tasks back to Queued status
             reset_result = self.supabase.table('tasks').update({
                 'status': 'Queued',
@@ -676,26 +691,24 @@ class DatabaseClient:
         Returns a dict mapping worker_id -> has_ever_claimed (bool).
         Much more efficient than N separate queries.
 
-        NOTE: We don't use .limit() here because it could cause false negatives.
-        If worker A has 100 tasks, limit(N) might return all rows for A and miss B.
-        We deduplicate into a set anyway, so no limit is needed.
+        Chunks the query to avoid exceeding PostgREST URL length limits.
         """
         if not worker_ids:
             return {}
 
         try:
-            # Get worker_ids that have ever had a task assigned
-            # No limit - we deduplicate into a set, and the in_() filter
-            # ensures we only get rows for workers we care about
-            result = self.supabase.table('tasks') \
-                .select('worker_id') \
-                .in_('worker_id', worker_ids) \
-                .execute()
+            claimed_workers: set = set()
+            # Chunk to avoid PostgREST URL length limits on .in_() filters
+            for i in range(0, len(worker_ids), _IN_CHUNK_SIZE):
+                chunk = worker_ids[i:i + _IN_CHUNK_SIZE]
+                result = self.supabase.table('tasks') \
+                    .select('worker_id') \
+                    .in_('worker_id', chunk) \
+                    .execute()
+                claimed_workers.update(
+                    r['worker_id'] for r in (result.data or []) if r.get('worker_id')
+                )
 
-            # Build set of workers that have claimed tasks (deduplication happens here)
-            claimed_workers = {r['worker_id'] for r in (result.data or []) if r.get('worker_id')}
-
-            # Return dict for all requested workers
             return {wid: wid in claimed_workers for wid in worker_ids}
 
         except Exception as e:
@@ -710,24 +723,24 @@ class DatabaseClient:
         Returns a dict mapping worker_id -> has_active_task (bool).
         Much more efficient than N separate queries.
 
-        NOTE: No limit needed - "In Progress" tasks are naturally limited (one per worker
-        typically), and we deduplicate into a set anyway.
+        Chunks the query to avoid exceeding PostgREST URL length limits.
         """
         if not worker_ids:
             return {}
 
         try:
-            # Get worker_ids that have active tasks
-            result = self.supabase.table('tasks') \
-                .select('worker_id') \
-                .in_('worker_id', worker_ids) \
-                .eq('status', 'In Progress') \
-                .execute()
+            active_workers: set = set()
+            for i in range(0, len(worker_ids), _IN_CHUNK_SIZE):
+                chunk = worker_ids[i:i + _IN_CHUNK_SIZE]
+                result = self.supabase.table('tasks') \
+                    .select('worker_id') \
+                    .in_('worker_id', chunk) \
+                    .eq('status', 'In Progress') \
+                    .execute()
+                active_workers.update(
+                    r['worker_id'] for r in (result.data or []) if r.get('worker_id')
+                )
 
-            # Build set of workers with active tasks (deduplication happens here)
-            active_workers = {r['worker_id'] for r in (result.data or []) if r.get('worker_id')}
-
-            # Return dict for all requested workers
             return {wid: wid in active_workers for wid in worker_ids}
 
         except Exception as e:

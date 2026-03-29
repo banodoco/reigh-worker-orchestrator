@@ -212,6 +212,14 @@ def derive_worker_state(
                 should_terminate = True
                 termination_reason = f"GPU ready but never claimed tasks ({effective_age_sec:.0f}s)"
                 error_code = "GPU_READY_NOT_CLAIMING"
+        elif queued_count > 0 and not has_active_task and has_ever_claimed:
+            # Worker claimed before but is now idle with tasks waiting.
+            # Use the same timeout — if it's not picking up work, it's stuck.
+            if effective_age_sec > config.ready_not_claiming_timeout_sec:
+                is_not_claiming = True
+                should_terminate = True
+                termination_reason = f"GPU ready, previously claimed, but idle with queued tasks ({effective_age_sec:.0f}s)"
+                error_code = "GPU_READY_IDLE_WITH_QUEUE"
 
     elif lifecycle == WorkerLifecycle.ACTIVE_INITIALIZING:
         if queued_count > 0 and not has_ever_claimed:
