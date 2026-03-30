@@ -225,17 +225,21 @@ def derive_worker_state(
 
     elif lifecycle == WorkerLifecycle.ACTIVE_READY:
         if queued_count > 0 and not has_active_task and not has_ever_claimed:
+            # Worker has NEVER claimed a task — effective_age_sec is a fair timer
+            # because it has been idle since birth.
             if effective_age_sec > config.ready_not_claiming_timeout_sec:
                 is_not_claiming = True
                 should_terminate = True
                 termination_reason = f"GPU ready but never claimed tasks ({effective_age_sec:.0f}s)"
                 error_code = "GPU_READY_NOT_CLAIMING"
-        elif queued_count > 0 and not has_active_task and has_ever_claimed:
-            if effective_age_sec > config.ready_not_claiming_timeout_sec:
-                is_not_claiming = True
-                should_terminate = True
-                termination_reason = f"GPU ready, previously claimed, but idle with queued tasks ({effective_age_sec:.0f}s)"
-                error_code = "GPU_READY_IDLE_WITH_QUEUE"
+        # NOTE: Removed GPU_READY_IDLE_WITH_QUEUE termination.
+        # Previously this killed workers that had ever claimed but were momentarily
+        # idle with queued tasks, using effective_age_sec (total worker age) as
+        # the timer. This incorrectly killed productive workers the instant they
+        # finished a task if their total age exceeded ready_not_claiming_timeout_sec
+        # (600s). Since we don't track idle-start time, there's no safe way to
+        # implement this check. The ACTIVE_STALE check (heartbeat timeout) already
+        # catches truly dead workers.
 
     elif lifecycle == WorkerLifecycle.ACTIVE_INITIALIZING:
         if queued_count > 0 and not has_ever_claimed:
