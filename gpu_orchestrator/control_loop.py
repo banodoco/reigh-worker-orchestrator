@@ -585,24 +585,31 @@ class OrchestratorControlLoop:
 
         running_tasks = await self.db.get_running_tasks_for_worker(ws.worker_id)
         for task in running_tasks:
-            task_type = task.get('task_type', '')
-
-            # Skip orchestrator tasks
-            if '_orchestrator' in task_type.lower():
+            # Use generation_started_at if available, otherwise fall back to
+            # updated_at (set when the task was claimed). This catches tasks
+            # that hang before generation starts (e.g. during model loading).
+            task_start_str = (
+                task.get('generation_started_at')
+                or task.get('updated_at')
+            )
+            if not task_start_str:
                 continue
 
-            if task.get('generation_started_at'):
-                task_start = datetime.fromisoformat(task['generation_started_at'].replace('Z', '+00:00'))
-                if task_start.tzinfo is None:
-                    task_start = task_start.replace(tzinfo=timezone.utc)
+            task_start = datetime.fromisoformat(task_start_str.replace('Z', '+00:00'))
+            if task_start.tzinfo is None:
+                task_start = task_start.replace(tzinfo=timezone.utc)
 
-                task_age = (datetime.now(timezone.utc) - task_start).total_seconds()
-                if task_age > self.config.task_stuck_timeout_sec:
-                    worker = await self.db.get_worker_by_id(ws.worker_id)
-                    if worker:
-                        await self._mark_worker_error(worker, f'Stuck task {task["id"]} (timeout: {self.config.task_stuck_timeout_sec}s)')
-                        summary.workers_failed += 1
-                    return
+            task_age = (datetime.now(timezone.utc) - task_start).total_seconds()
+            if task_age > self.config.task_stuck_timeout_sec:
+                worker = await self.db.get_worker_by_id(ws.worker_id)
+                if worker:
+                    await self._mark_worker_error(
+                        worker,
+                        f'Stuck task {task["id"]} (type: {task.get("task_type", "unknown")}, '
+                        f'timeout: {self.config.task_stuck_timeout_sec}s)',
+                    )
+                    summary.workers_failed += 1
+                return
 
     async def _perform_basic_health_check(self, worker: Dict[str, Any]) -> bool:
         """
