@@ -1143,11 +1143,21 @@ import re, sys, importlib.metadata
 from pathlib import Path
 req_files = [f for f in ["requirements.txt", "Wan2GP/requirements.txt"] if Path(f).exists()]
 pin_re = re.compile(r"^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)")
+marker_re = re.compile(r";\s*(.+)$")
 bad = []
 for rf in req_files:
     for line in Path(rf).read_text().splitlines():
-        m = pin_re.match(line.strip())
+        stripped = line.strip()
+        m = pin_re.match(stripped)
         if not m: continue
+        # Skip lines with environment markers that don't apply to this Python
+        marker_match = marker_re.search(stripped)
+        if marker_match:
+            try:
+                if not eval(marker_match.group(1), dict(python_version=".".join(map(str, sys.version_info[:2])))):
+                    continue
+            except Exception:
+                pass
         name, want = m.group(1), m.group(2)
         try: got = importlib.metadata.version(name.replace("_", "-"))
         except Exception: got = "missing"
@@ -1158,21 +1168,61 @@ sys.exit(1 if bad else 0)
 VERIFY_DEPS_EOF
 
 if [ "$VERIFY_EXIT" -ne 0 ]; then
-    echo "⚠️  Version mismatches detected, forcing reinstall..." >> $LOG_FILE 2>&1
-    INSTALL_OK=$(install_requirements)
+    echo "⚠️  Version mismatches detected, installing only mismatched packages..." >> $LOG_FILE 2>&1
+    # Install ONLY the mismatched packages instead of re-running all requirements
+    python << 'FIX_MISMATCHED_EOF' >> $LOG_FILE 2>&1
+import re, sys, importlib.metadata, subprocess
+from pathlib import Path
+req_files = [f for f in ["requirements.txt", "Wan2GP/requirements.txt"] if Path(f).exists()]
+pin_re = re.compile(r"^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)")
+marker_re = re.compile(r";\s*(.+)$")
+bad = []
+for rf in req_files:
+    for line in Path(rf).read_text().splitlines():
+        stripped = line.strip()
+        m = pin_re.match(stripped)
+        if not m: continue
+        # Skip lines with environment markers that don't match this Python
+        marker_match = marker_re.search(stripped)
+        if marker_match:
+            try:
+                if not eval(marker_match.group(1), dict(python_version=".".join(map(str, sys.version_info[:2])))):
+                    continue
+            except Exception:
+                pass  # If marker eval fails, check the package anyway
+        name, want = m.group(1), m.group(2)
+        try: got = importlib.metadata.version(name.replace("_", "-"))
+        except Exception: got = "missing"
+        if got != want: bad.append((name, got, want))
+if bad:
+    pkgs = [name + "==" + want for name, got, want in bad]
+    print("Fixing " + str(len(pkgs)) + " mismatched package(s): " + ", ".join(pkgs))
+    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps"] + pkgs)
+else:
+    print("All packages at correct versions")
+FIX_MISMATCHED_EOF
 
-    # Re-verify after reinstall
+    # Re-verify after targeted fix
     REVERIFY_EXIT=0
     python << 'REVERIFY_EOF' >> $LOG_FILE 2>&1 || REVERIFY_EXIT=$?
 import re, sys, importlib.metadata
 from pathlib import Path
 req_files = [f for f in ["requirements.txt", "Wan2GP/requirements.txt"] if Path(f).exists()]
 pin_re = re.compile(r"^([a-zA-Z0-9_][a-zA-Z0-9._-]*)(?:\[.*?\])?\s*==\s*([^\s;#]+)")
+marker_re = re.compile(r";\s*(.+)$")
 bad = []
 for rf in req_files:
     for line in Path(rf).read_text().splitlines():
-        m = pin_re.match(line.strip())
+        stripped = line.strip()
+        m = pin_re.match(stripped)
         if not m: continue
+        marker_match = marker_re.search(stripped)
+        if marker_match:
+            try:
+                if not eval(marker_match.group(1), dict(python_version=".".join(map(str, sys.version_info[:2])))):
+                    continue
+            except Exception:
+                pass
         name, want = m.group(1), m.group(2)
         try: got = importlib.metadata.version(name.replace("_", "-"))
         except Exception: got = "missing"
@@ -1184,20 +1234,25 @@ sys.exit(1 if bad else 0)
 REVERIFY_EOF
 
     if [ "$REVERIFY_EXIT" -ne 0 ]; then
-        echo "❌ Some packages could not be installed at required versions" >> $LOG_FILE 2>&1
-        INSTALL_OK=false
+        echo "⚠️  Some packages unfixable (transitive dep conflicts) — continuing anyway" >> $LOG_FILE 2>&1
     else
         VERIFY_EXIT=0
     fi
 fi
 
-# Only cache hash when installed state is verified correct
-if [ "$INSTALL_OK" != false ] && [ "$VERIFY_EXIT" -eq 0 ]; then
+# Always cache hash after install attempt — even if some packages have
+# unfixable transitive conflicts (e.g. supabase pulling newer pydantic).
+# Without caching, every boot re-runs the full pip install for nothing.
+if [ "$INSTALL_OK" != false ]; then
     echo "$CURRENT_HASH" > venv/.requirements_hash
-    echo "✅ Dependencies verified, hash cached" >> $LOG_FILE 2>&1
+    if [ "$VERIFY_EXIT" -eq 0 ]; then
+        echo "✅ Dependencies verified, hash cached" >> $LOG_FILE 2>&1
+    else
+        echo "⚠️  Some version mismatches remain (transitive conflicts) — hash cached anyway to avoid reinstall loop" >> $LOG_FILE 2>&1
+    fi
 else
     rm -f venv/.requirements_hash
-    echo "⚠️  Dependencies not fully correct — hash cleared for retry next startup" >> $LOG_FILE 2>&1
+    echo "❌ Install failed — hash cleared for retry next startup" >> $LOG_FILE 2>&1
 fi
 
 # Validate all critical imports before starting worker
