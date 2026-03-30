@@ -1193,11 +1193,17 @@ for rf in req_files:
         try: got = importlib.metadata.version(name.replace("_", "-"))
         except Exception: got = "missing"
         if got != want: bad.append((name, got, want))
-if bad:
-    pkgs = [name + "==" + want for name, got, want in bad]
-    print("Fixing " + str(len(pkgs)) + " mismatched package(s): " + ", ".join(pkgs))
-    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps"] + pkgs)
-else:
+missing = [name + "==" + want for name, got, want in bad if got == "missing"]
+wrong_ver = [name + "==" + want for name, got, want in bad if got != "missing"]
+if missing:
+    # Missing packages need full dep resolution (their transitive deps aren't installed)
+    print("Installing " + str(len(missing)) + " missing package(s): " + ", ".join(missing))
+    subprocess.run([sys.executable, "-m", "pip", "install"] + missing)
+if wrong_ver:
+    # Wrong version but already installed — deps are present, just fix the version
+    print("Fixing " + str(len(wrong_ver)) + " version mismatch(es): " + ", ".join(wrong_ver))
+    subprocess.run([sys.executable, "-m", "pip", "install", "--no-deps"] + wrong_ver)
+if not bad:
     print("All packages at correct versions")
 FIX_MISMATCHED_EOF
 
