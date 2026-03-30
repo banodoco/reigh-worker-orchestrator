@@ -1127,13 +1127,12 @@ install_requirements() {{
     echo "$ok"
 }}
 
-if [ "$CURRENT_HASH" != "$CACHED_HASH" ]; then
-    echo "Requirements changed, installing..." >> $LOG_FILE 2>&1
-    INSTALL_OK=$(install_requirements)
-else
+if [ "$CURRENT_HASH" == "$CACHED_HASH" ]; then
     echo "Requirements unchanged, skipping install" >> $LOG_FILE 2>&1
-    INSTALL_OK=true
+else
+    echo "Requirements changed — will verify and fix only what's needed..." >> $LOG_FILE 2>&1
 fi
+INSTALL_OK=true
 
 # Verify installed packages match pinned versions (single Python process).
 echo "=== VERIFYING INSTALLED VERSIONS ===" >> $LOG_FILE 2>&1
