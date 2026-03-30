@@ -1288,6 +1288,8 @@ echo "✅ Worker process started with PID: $WORKER_PID at $(date)" >> $LOG_FILE 
 sleep 2
 if kill -0 $WORKER_PID 2>/dev/null; then
     echo "✅ Worker process $WORKER_PID is still running after 2 seconds" >> $LOG_FILE 2>&1
+    # Clear startup_phase so orchestrator knows we're ready
+    update_worker_phase "ready"
 else
     echo "❌ ERROR: Worker process $WORKER_PID died immediately!" >> $LOG_FILE 2>&1
     echo "Exit status was: $?" >> $LOG_FILE 2>&1
