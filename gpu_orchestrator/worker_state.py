@@ -457,8 +457,8 @@ def calculate_scaling_decision_pure(
     spawn_for_tasks = uncovered_tasks
 
     # 2. Proactive scaling: Maintain floor (only if not already spawning)
-    # Floor = max(min_active_gpus, busy_count + machines_to_keep_idle)
-    desired_floor = max(config.min_active_gpus, busy_count + config.machines_to_keep_idle)
+    # Floor = max(min_active_gpus, busy_count + max(machines_to_keep_idle, 1))
+    desired_floor = max(config.min_active_gpus, busy_count + max(config.machines_to_keep_idle, 1))
 
     # Account for workers we're about to spawn for tasks
     capacity_after_task_spawns = current_capacity + spawn_for_tasks
@@ -485,7 +485,7 @@ def calculate_scaling_decision_pure(
     else:
         task_based = 0
 
-    buffer_based = busy_count + config.machines_to_keep_idle
+    buffer_based = busy_count + max(config.machines_to_keep_idle, 1)
     min_based = config.min_active_gpus
 
     desired = max(min_based, task_based, buffer_based)

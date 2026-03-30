@@ -118,20 +118,6 @@ class HealthPhaseMixin:
                 return True
             return False
 
-        if await self._is_worker_idle_with_timeout(worker, self.config.gpu_idle_timeout_sec):
-            stable_active = len([state for state in active_states if state.is_healthy])
-            if stable_active > self.config.min_active_gpus:
-                logger.info(
-                    f"[WORKER_HEALTH] Worker {worker_id}: "
-                    "Idle timeout with no work, terminating"
-                )
-                await self._mark_worker_error(
-                    worker,
-                    f"Idle timeout ({self.config.gpu_idle_timeout_sec}s) with no work available",
-                )
-                summary.workers_failed += 1
-                return True
-
         return False
 
     def _log_worker_lifecycle_state(self: "ControlHost", ws: DerivedWorkerState) -> None:

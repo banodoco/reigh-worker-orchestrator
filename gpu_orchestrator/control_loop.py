@@ -343,7 +343,7 @@ class OrchestratorControlLoop:
         else:
             task_based = 0
 
-        early_desired = max(config.min_active_gpus, task_based, config.machines_to_keep_idle)
+        early_desired = max(config.min_active_gpus, task_based, max(config.machines_to_keep_idle, 1))
         early_desired = min(early_desired, config.max_active_gpus)
 
         if current_capacity <= early_desired:
@@ -535,17 +535,6 @@ class OrchestratorControlLoop:
                             await self._mark_worker_error(worker, 'Failed basic health check with tasks queued')
                             summary.workers_failed += 1
                             continue
-
-                    # No tasks queued - check idle timeout for potential scale-down
-                    else:
-                        if await self._is_worker_idle_with_timeout(worker, self.config.gpu_idle_timeout_sec):
-                            # Check if we can terminate (above minimum)
-                            stable_active = len([s for s in active_states if s.is_healthy])
-                            if stable_active > self.config.min_active_gpus:
-                                logger.info(f"[WORKER_HEALTH] Worker {worker_id}: Idle timeout with no work, terminating")
-                                await self._mark_worker_error(worker, f'Idle timeout ({self.config.gpu_idle_timeout_sec}s) with no work available')
-                                summary.workers_failed += 1
-                                continue
 
                 # Log healthy worker state
                 if ws.lifecycle == WorkerLifecycle.ACTIVE_READY:
@@ -805,6 +794,7 @@ class OrchestratorControlLoop:
         failure_rate_ok: bool,
     ) -> ScalingDecision:
         """Legacy scaling logic (before double-spawn fix)."""
+        # TODO: Remove legacy scaling path (DECISION-003)
         config = self.config
 
         # Count workers by state
@@ -828,7 +818,7 @@ class OrchestratorControlLoop:
         else:
             task_based = 0
 
-        buffer_based = busy_count + config.machines_to_keep_idle
+        buffer_based = busy_count + max(config.machines_to_keep_idle, 1)
         min_based = config.min_active_gpus
 
         desired = max(min_based, task_based, buffer_based)
@@ -938,7 +928,7 @@ class OrchestratorControlLoop:
             terminatable.sort(key=lambda w: w.get('created_at', ''), reverse=True)
 
             # Calculate how many to terminate
-            max_by_buffer = max(0, decision.idle_count - config.machines_to_keep_idle)
+            max_by_buffer = max(0, decision.idle_count - max(config.machines_to_keep_idle, 1))
             max_by_capacity = decision.workers_to_terminate
             max_by_min_active = max(0, decision.active_count - config.min_active_gpus)
 
@@ -1305,11 +1295,14 @@ class OrchestratorControlLoop:
                 if status == 'running':
                     final_status = 'active'
                 elif status == 'error':
-                    final_status = 'error'
+                    final_status = 'terminated'
                 else:
                     final_status = 'spawning'
 
                 metadata = {'runpod_id': pod_id}
+                if status == 'error':
+                    metadata['termination_reason'] = 'spawn_failed'
+                    metadata['terminated_at'] = datetime.now(timezone.utc).isoformat()
                 if 'ssh_details' in result:
                     metadata['ssh_details'] = result['ssh_details']
                 if 'pod_details' in result:
@@ -1331,9 +1324,16 @@ class OrchestratorControlLoop:
                 if final_status == 'active' and self.config.auto_start_worker_process:
                     self.runpod.start_worker_process(pod_id, worker_id, has_pending_tasks=(queued_count > 0))
 
-                return final_status != 'error'
+                return final_status not in ('error', 'terminated')
             else:
-                await self.db.mark_worker_error(worker_id, 'Failed to spawn Runpod instance')
+                await self.db.update_worker_status(
+                    worker_id,
+                    'terminated',
+                    {
+                        'termination_reason': 'spawn_failed',
+                        'terminated_at': datetime.now(timezone.utc).isoformat(),
+                    },
+                )
                 return False
 
         except Exception as e:
@@ -1556,6 +1556,10 @@ class OrchestratorControlLoop:
                 continue
 
             if ws.should_terminate:
+                continue
+
+            # Idle healthy workers are PATH B's responsibility (scaling execution)
+            if ws.is_active and not ws.has_active_task and ws.heartbeat_is_recent:
                 continue
 
             cutoff_sec = self.config.spawning_timeout_sec if ws.is_spawning else self.config.gpu_idle_timeout_sec

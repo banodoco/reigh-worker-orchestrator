@@ -191,6 +191,10 @@ class PeriodicChecksMixin:
             if ws.should_terminate:
                 continue
 
+            # Idle healthy workers are PATH B's responsibility (scaling execution)
+            if ws.is_active and not ws.has_active_task and ws.heartbeat_is_recent:
+                continue
+
             cutoff_sec = self.config.spawning_timeout_sec if ws.is_spawning else self.config.gpu_idle_timeout_sec
             age = ws.heartbeat_age_sec if ws.has_heartbeat else ws.effective_age_sec
             if age is not None and age > cutoff_sec:
