@@ -27,8 +27,8 @@ load_dotenv()
 TEST_IMAGE_URL = "https://wczysqzxlwdndgxitrvc.supabase.co/storage/v1/object/public/image_uploads/702a2ebf-569e-4f7d-a7df-78e7c1847000/uploads/1766004551919-7rsoekdg.png"
 
 
-def test_parameter_building():
-    """Unit test: Verify qwen_edit_model endpoint mapping logic."""
+def run_parameter_building_checks() -> bool:
+    """Run endpoint-mapping checks used by both pytest and CLI mode."""
     print("\n" + "="*60)
     print("UNIT TEST: qwen_edit_model Parameter Mapping")
     print("="*60)
@@ -106,7 +106,12 @@ def test_parameter_building():
     return all_passed
 
 
-async def test_qwen_edit_model_live(model: str, with_lora: bool = False):
+def test_parameter_building():
+    """Pytest entrypoint for qwen_edit_model endpoint-mapping checks."""
+    assert run_parameter_building_checks()
+
+
+async def run_qwen_edit_model_live(model: str, with_lora: bool = False):
     """Live test: Call actual Wavespeed API with specified model."""
     import httpx
     from api_orchestrator.main import process_api_task
@@ -137,7 +142,7 @@ async def test_qwen_edit_model_live(model: str, with_lora: bool = False):
                 "scale": 0.8
             }
         ]
-        print(f"Using LoRA: style_transfer_qwen_edit_2")
+        print("Using LoRA: style_transfer_qwen_edit_2")
 
     # Determine expected endpoint for logging
     has_loras = bool(task["params"].get("loras"))
@@ -155,7 +160,7 @@ async def test_qwen_edit_model_live(model: str, with_lora: bool = False):
     async with httpx.AsyncClient(limits=limits, timeout=300.0) as client:
         try:
             result = await process_api_task(task, client)
-            print(f"\n✅ SUCCESS!")
+            print("\n✅ SUCCESS!")
             print(f"Result keys: {list(result.keys())}")
 
             if 'output_url' in result:
@@ -183,7 +188,7 @@ async def main():
     args = parser.parse_args()
 
     # Always run unit tests first
-    unit_tests_passed = test_parameter_building()
+    unit_tests_passed = run_parameter_building_checks()
 
     if not args.live:
         print("\n💡 Tip: Run with --live to test against actual Wavespeed API")
@@ -216,7 +221,7 @@ async def main():
     # Run tests
     results = {}
     for model in models_to_test:
-        success, result = await test_qwen_edit_model_live(model, with_lora=args.with_lora)
+        success, result = await run_qwen_edit_model_live(model, with_lora=args.with_lora)
         results[model] = {"success": success, "result": result}
 
     # Summary

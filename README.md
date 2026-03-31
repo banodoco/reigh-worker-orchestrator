@@ -34,5 +34,13 @@ python scripts/debug.py runpod              # Find orphaned pods
 cp env.example .env  # Fill in credentials
 pip install -r api_orchestrator/requirements.txt
 pip install -r gpu_orchestrator/requirements.txt
+pip install -r requirements-dev.txt
 python -m gpu_orchestrator.main continuous
+```
+
+## Test Quality
+
+```bash
+pytest -q
+pytest --cov=api_orchestrator --cov=gpu_orchestrator --cov-report=term-missing -q
 ```

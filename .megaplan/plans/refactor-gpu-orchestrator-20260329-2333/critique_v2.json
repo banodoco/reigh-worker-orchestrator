@@ -1,0 +1,25 @@
+{
+  "flags": [
+    {
+      "id": "worker-lifecycle-failsafe-verdict-still-duplicated",
+      "concern": "Worker lifecycle: the revised Step 3 still leaves `_failsafe_stale_worker_check()` as a second health-verdict engine. It stops parsing raw timestamps, but it still recomputes `age > cutoff` inside `control_loop.py` instead of consuming a precomputed verdict from `DerivedWorkerState`, so it does not fully achieve the stated goal that derived state is the one verdict and everything else only reads it.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "In the repo today, `DerivedWorkerState` exposes raw timing fields plus one termination verdict (`gpu_orchestrator/worker_state.py:40-79`, `gpu_orchestrator/worker_state.py:182-238`). The current failsafe is a separate evaluator that applies its own cutoff math (`gpu_orchestrator/control_loop.py:1577-1613`). The revised plan replaces raw datetime parsing with `ws.heartbeat_age_sec` / `ws.effective_age_sec`, but it still keeps the cutoff comparison in failsafe rather than moving that verdict into `worker_state.py`."
+    },
+    {
+      "id": "plan-structure-numbered-substeps",
+      "concern": "Plan structure: the plan is mostly well-formed, but it still does not fully match the requested step format because some step sections are prose-driven rather than clearly numbered substeps.",
+      "category": "completeness",
+      "severity_hint": "likely-minor",
+      "evidence": "The validator already reports `Each step section should include at least one numbered substep.` In practice, `### Step 2` and `### Step 5` are organized around prose/'Remove/Keep' blocks instead of a clean numbered action list."
+    }
+  ],
+  "verified_flag_ids": [
+    "worker-lifecycle-root-cause-mismatch",
+    "worker-lifecycle-startup-phase-regression",
+    "scaling-health-boundary-idle-timeout",
+    "control-refactor-scope-creep"
+  ],
+  "disputed_flag_ids": []
+}

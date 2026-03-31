@@ -1,0 +1,63 @@
+{
+  "output": "Implemented batch 2 in `gpu_orchestrator/control_loop.py`. T2 removes the duplicate stale-heartbeat queued-work termination path and the two unreachable no-heartbeat branches from `_health_check_active_workers`, leaving `ws.should_terminate` as the stale-heartbeat authority and the queued-work path as basic health-check only. T3 rewrites `_failsafe_stale_worker_check` to consume `List[DerivedWorkerState]`, skip terminal/startup/already-terminating workers, compute staleness from derived ages, and fetch raw worker records only inside the termination loop; `_run_periodic_checks` now passes `worker_states` directly.",
+  "files_changed": [
+    "gpu_orchestrator/control_loop.py"
+  ],
+  "commands_run": [
+    "sed -n '460,640p' gpu_orchestrator/control_loop.py",
+    "sed -n '1010,1085p' gpu_orchestrator/control_loop.py",
+    "sed -n '1560,1655p' gpu_orchestrator/control_loop.py",
+    "rg -n \"DerivedWorkerState|_health_check_active_workers|_failsafe_stale_worker_check|_run_periodic_checks|get_worker_by_id|get_all_workers\" gpu_orchestrator/control_loop.py gpu_orchestrator/database.py",
+    "python -m py_compile gpu_orchestrator/control_loop.py",
+    "python - <<'PY'\nfrom pathlib import Path\ntext = Path('gpu_orchestrator/control_loop.py').read_text()\nstart = text.index('    async def _failsafe_stale_worker_check')\nend = text.index('    async def _efficient_zombie_check', start)\nblock = text[start:end]\nforbidden = [\"metadata.get('startup_phase')\", 'datetime.fromisoformat', \"worker['status']\", \"worker.get('last_heartbeat')\"]\nprint({item: (item in block) for item in forbidden})\nPY",
+    "python - <<'PY'\nfrom pathlib import Path\ntext = Path('gpu_orchestrator/control_loop.py').read_text()\nstart = text.index('    async def _health_check_active_workers')\nend = text.index('    async def _check_stuck_tasks', start)\nblock = text[start:end]\nchecks = {\n    'queued_basic_health': \"if task_counts.queued > 0:\\n                        if not await self._perform_basic_health_check(worker):\" in block,\n    'stale_queued_branch_removed': 'Idle with stale heartbeat' not in block,\n    'active_no_heartbeat_removed': 'No heartbeat with active tasks' not in block,\n    'queued_no_heartbeat_removed': 'No heartbeat or activity with tasks queued' not in block,\n}\nprint(checks)\nPY",
+    "git diff -- gpu_orchestrator/control_loop.py",
+    "test -w .megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_2.json && echo writable || echo not_writable"
+  ],
+  "deviations": [
+    "Best-effort checkpointing to `.megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_2.json` was skipped because the target file was not writable.",
+    "Advisory quality: code changes lacked test updates: gpu_orchestrator/control_loop.py.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/runpod, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator, tests/orchestrator_common, tests/scaling_decision_helpers.py, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py, tests/test_scaling_decision_limits.py, tests/test_scaling_decision_spawn.py",
+    "Advisory audit finding: Sense check SC4 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC5 is missing an executor acknowledgment."
+  ],
+  "task_updates": [
+    {
+      "task_id": "T2",
+      "status": "done",
+      "executor_notes": "Removed the duplicate stale-heartbeat queued-task termination branch and both unreachable no-heartbeat branches from `_health_check_active_workers`. Verification on the method body confirms the queued-task path now only performs `_perform_basic_health_check(worker)`, and the removed strings `Idle with stale heartbeat`, `No heartbeat with active tasks`, and `No heartbeat or activity with tasks queued` are absent. `python -m py_compile gpu_orchestrator/control_loop.py` passed.",
+      "files_changed": [
+        "gpu_orchestrator/control_loop.py"
+      ],
+      "commands_run": [
+        "python -m py_compile gpu_orchestrator/control_loop.py",
+        "python - <<'PY' ... queued_basic_health / removed-branch verification ... PY",
+        "git diff -- gpu_orchestrator/control_loop.py"
+      ]
+    },
+    {
+      "task_id": "T3",
+      "status": "done",
+      "executor_notes": "Rewrote `_failsafe_stale_worker_check` to accept `List[DerivedWorkerState]`, skip `ws.is_terminal`, `ws.in_startup_phase`, and `ws.should_terminate`, compute staleness from `ws.heartbeat_age_sec` or `ws.effective_age_sec`, and use `ws.worker_id`/`ws.runpod_id` in the termination loop with raw worker fetches only inside that loop. `_run_periodic_checks` now passes `worker_states` directly. Verification confirms the failsafe block contains zero instances of `metadata.get('startup_phase')`, `datetime.fromisoformat`, `worker['status']`, and `worker.get('last_heartbeat')`; `python -m py_compile gpu_orchestrator/control_loop.py` passed.",
+      "files_changed": [
+        "gpu_orchestrator/control_loop.py"
+      ],
+      "commands_run": [
+        "python -m py_compile gpu_orchestrator/control_loop.py",
+        "python - <<'PY' ... forbidden-pattern verification for failsafe block ... PY",
+        "git diff -- gpu_orchestrator/control_loop.py"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC2",
+      "executor_note": "Yes. In `_health_check_active_workers`, the stale-heartbeat queued-task termination path was removed, so `ws.should_terminate` is now the only stale-heartbeat kill path for queued work. The remaining `if task_counts.queued > 0:` branch only calls `_perform_basic_health_check(worker)`."
+    },
+    {
+      "sense_check_id": "SC3",
+      "executor_note": "Yes. Verified on the `_failsafe_stale_worker_check` method body: it contains zero instances of `metadata.get('startup_phase')`, `datetime.fromisoformat`, `worker['status']`, and `worker.get('last_heartbeat')`; all four checks returned `False`."
+    }
+  ]
+}

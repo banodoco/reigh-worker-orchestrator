@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "timestamp": "2026-03-30T17:50:23Z",
+  "hash": "sha256:874dcbe7be5e764ff98f2800f3863e3c7227346b9dd739ae1ff71ceac907ad83",
+  "questions": [
+    "The brief says MACHINES_TO_KEEP_IDLE=0 is the current config. Is this intentional (cost optimization) or an oversight? The fix assumes 0 is common and forces a minimum of 1 idle buffer in the code. Alternatively, we could just change the config default to 1 \u2014 but that's fragile if someone sets it back to 0.",
+    "Should we keep the legacy scaling path (`use_new_scaling_logic=False`) working, or can we remove it? This affects whether we need to fix the legacy path too or just flag it.",
+    "The failsafe (PATH C) uses `gpu_idle_timeout_sec` (600s) as its cutoff for active workers. After consolidation, should the failsafe have a LONGER timeout (e.g., 2x idle timeout) to act as a true safety net, or is the current 600s fine since it only fires for lost-heartbeat workers?",
+    "Are there any other consumers of the `error` vs `terminated` status distinction beyond the circuit breaker? (e.g., alerting, dashboards, billing) \u2014 want to make sure changing status semantics doesn't break downstream."
+  ],
+  "success_criteria": [
+    "An idle worker is NOT terminated when it's the only warm capacity available to claim new tasks, even with MACHINES_TO_KEEP_IDLE=0.",
+    "Idle worker terminations use `terminated` status, never `error` status \u2014 verified by grepping for `_mark_worker_error` and confirming no idle-timeout callers.",
+    "The circuit breaker (`_check_worker_failure_rate`) is not triggered by normal scale-down operations.",
+    "Only one code path (scaling execution, PATH B) is responsible for idle worker termination decisions.",
+    "The failsafe (PATH C) does not terminate healthy idle workers that the scaling path should manage.",
+    "All existing tests pass, with updates to reflect the new buffer behavior.",
+    "New test cases cover: (a) idle worker preservation with buffer, (b) terminated status not affecting failure rate, (c) overcapacity respecting the buffer minimum."
+  ],
+  "assumptions": [
+    "MACHINES_TO_KEEP_IDLE=0 is a real production config, not just a test value. The code fix (forcing min 1 buffer) is safer than requiring a config change.",
+    "The new scaling logic (`use_new_scaling_logic=True`) is the active path. Legacy path is kept for rollback safety.",
+    "PATH C failsafe is intended only for stuck/stale workers (lost heartbeat, spawning timeout), not for capacity-based idle termination.",
+    "The `_mark_worker_error` vs `_terminate_worker` distinction is intentional and must be preserved: `error` = unexpected failure, `terminated` = intentional shutdown.",
+    "No external systems depend on the ratio of error vs terminated workers beyond the in-process circuit breaker.",
+    "The overcapacity_idle_timeout_sec (30s) is appropriate when workers are genuinely over capacity, but the definition of 'over capacity' needs fixing (Step 2)."
+  ],
+  "structure_warnings": []
+}

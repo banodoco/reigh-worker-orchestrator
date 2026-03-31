@@ -1,0 +1,38 @@
+{
+  "entries": [
+    {
+      "id": "DEBT-001",
+      "subsystem": "failsafe-health-verdict",
+      "concern": "the failsafe still computes age > cutoff locally rather than consuming a precomputed is_failsafe_stale verdict from derivedworkerstate.",
+      "flag_ids": [
+        "worker-lifecycle-failsafe-verdict-still-duplicated"
+      ],
+      "plan_ids": [
+        "refactor-gpu-orchestrator-20260329-2333"
+      ],
+      "occurrence_count": 1,
+      "created_at": "2026-03-29T22:01:07Z",
+      "updated_at": "2026-03-29T22:01:07Z",
+      "resolved": false,
+      "resolved_by": null,
+      "resolved_at": null
+    },
+    {
+      "id": "DEBT-002",
+      "subsystem": "control-decomposition",
+      "concern": "two additional duplicated paths (legacy scaling in `scaling_decision.py:70` and failsafe in `periodic.py:175-229`) are not explicitly called out as plan steps, so the repository will still have some duplication if the executor doesn't extend the fixes.",
+      "flag_ids": [
+        "FLAG-003"
+      ],
+      "plan_ids": [
+        "fix-gpu-orchestrator-scaling-20260330-1936"
+      ],
+      "occurrence_count": 1,
+      "created_at": "2026-03-30T17:58:57Z",
+      "updated_at": "2026-03-30T17:58:57Z",
+      "resolved": false,
+      "resolved_by": null,
+      "resolved_at": null
+    }
+  ]
+}

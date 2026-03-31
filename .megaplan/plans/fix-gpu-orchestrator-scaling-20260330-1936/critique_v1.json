@@ -1,0 +1,34 @@
+{
+  "flags": [
+    {
+      "id": "FLAG-001",
+      "concern": "Circuit breaker: Phase 3 under-fixes the stated spawn-failure conflation. The plan says no code changes are needed once idle timeouts stop using `error`, but the repository still records RunPod spawn failures as `error`, so the breaker will continue tripping on capacity-provider outages.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "`gpu_orchestrator/control_loop.py:1335-1337` calls `db.mark_worker_error(worker_id, 'Failed to spawn Runpod instance')`, and `gpu_orchestrator/control_loop.py:1417-1423` counts every `status == 'error'` in `_check_worker_failure_rate()`. The same duplicate logic exists in `gpu_orchestrator/control/phases/worker_capacity.py:239` and `gpu_orchestrator/control/phases/worker_capacity.py:304-307`. Plan Step 8 claims the fix is upstream from Step 1, which contradicts the actual code."
+    },
+    {
+      "id": "FLAG-002",
+      "concern": "Scaling: The plan fixes `desired_floor` in the pure scaling function, but leaves the separate early-termination path on the old semantics, so excess spawning workers can still be cut back to zero warm buffer after the grace period.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "`gpu_orchestrator/control_loop.py:339-347` computes `early_desired = max(min_active_gpus, task_based, machines_to_keep_idle)` and `gpu_orchestrator/control_loop.py:366-399` terminates spawning workers when `current_capacity > early_desired`. The duplicate path in `gpu_orchestrator/control/phases/lifecycle.py:39-46` and `gpu_orchestrator/control/phases/lifecycle.py:69-106` does the same. Plan Steps 1-2 do not touch this path."
+    },
+    {
+      "id": "FLAG-003",
+      "concern": "Control decomposition: The plan does not account for the repository's duplicated control logic in the phase mixins, so it will leave the same health/scaling/termination behavior split across `control_loop.py` and `control/phases/*` with different semantics.",
+      "category": "maintainability",
+      "severity_hint": "likely-significant",
+      "evidence": "The active implementations in `gpu_orchestrator/control_loop.py` are mirrored in `gpu_orchestrator/control/phases/health.py`, `gpu_orchestrator/control/phases/scaling_decision.py`, `gpu_orchestrator/control/phases/worker_capacity.py`, `gpu_orchestrator/control/phases/lifecycle.py`, and `gpu_orchestrator/control/phases/periodic.py`. For example, the idle-timeout health kill exists in both `gpu_orchestrator/control_loop.py:539-547` and `gpu_orchestrator/control/phases/health.py:121-132`, and the scale-down buffer logic exists in both `gpu_orchestrator/control_loop.py:940-945` and `gpu_orchestrator/control/phases/worker_capacity.py:48-52`. Plan steps mostly edit only `control_loop.py`."
+    },
+    {
+      "id": "FLAG-004",
+      "concern": "Validation: The proposed failure-rate test is attached to the wrong layer, so the plan does not actually verify one of its explicit success criteria.",
+      "category": "completeness",
+      "severity_hint": "likely-significant",
+      "evidence": "Plan Step 8 proposes adding `test_terminated_workers_dont_affect_failure_rate` to `tests/test_scaling_decision_limits.py`, but that file exercises `calculate_scaling_decision_pure()` (`gpu_orchestrator/worker_state.py:414-541`), which only accepts `failure_rate_ok` as an input and never computes the breaker. It cannot validate `_check_worker_failure_rate()` in `gpu_orchestrator/control_loop.py:1384-1436` or the spawn-failure path in `_spawn_worker()`."
+    }
+  ],
+  "verified_flag_ids": [],
+  "disputed_flag_ids": []
+}

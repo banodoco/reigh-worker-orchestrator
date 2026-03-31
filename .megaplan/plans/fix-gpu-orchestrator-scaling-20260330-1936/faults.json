@@ -1,0 +1,55 @@
+{
+  "flags": [
+    {
+      "id": "FLAG-001",
+      "concern": "Circuit breaker: Phase 3 under-fixes the stated spawn-failure conflation. The plan says no code changes are needed once idle timeouts stop using `error`, but the repository still records RunPod spawn failures as `error`, so the breaker will continue tripping on capacity-provider outages.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "Revised plan to address all 4 flags:\n\n**FLAG-001 (circuit breaker spawn-failure conflation):** Added Step 4 \u2014 change spawn failure handling from `mark_worker_error` (\u2192 `error` status) to `update_worker_status` with `terminated` status and `spawn_failed` reason, in both `control_loop.py:1336` and `worker_capacity.py:239`. This prevents RunPod outages from tripping the circuit breaker.\n\n**FLAG-002 (early termination path missing buffer fix):** Added Step 3 \u2014 apply `max(machines_to_keep_idle, 1)` to `early_desired` calculation in both `control_loop.py:346` and `lifecycle.py:45`. Without this, spawning workers could be killed back to zero warm buffer.\n\n**FLAG-003 (duplicated logic across control_loop.py and phase mixins):** Every step now explicitly lists both locations. Step 1 fixes health.py:121-133 alongside control_loop.py:539-548. Step 4 fixes worker_capacity.py:239 alongside control_loop.py:1336. Step 5 fixes worker_capacity.py:48 alongside control_loop.py:941. Step 3 fixes lifecycle.py:45 alongside control_loop.py:346.\n\n**FLAG-004 (failure-rate test at wrong layer):** Moved the circuit breaker test from `test_scaling_decision_limits.py` (which tests the pure function) to a new `tests/test_circuit_breaker.py` that mocks `db.get_workers` and calls `_check_worker_failure_rate()` directly \u2014 the actual method that computes the breaker.",
+      "raised_in": "critique_v1.json",
+      "status": "verified",
+      "severity": "significant",
+      "verified": true,
+      "addressed_in": "plan_v2.md",
+      "verified_in": "critique_v2.json"
+    },
+    {
+      "id": "FLAG-002",
+      "concern": "Scaling: The plan fixes `desired_floor` in the pure scaling function, but leaves the separate early-termination path on the old semantics, so excess spawning workers can still be cut back to zero warm buffer after the grace period.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "Revised plan to address all 4 flags:\n\n**FLAG-001 (circuit breaker spawn-failure conflation):** Added Step 4 \u2014 change spawn failure handling from `mark_worker_error` (\u2192 `error` status) to `update_worker_status` with `terminated` status and `spawn_failed` reason, in both `control_loop.py:1336` and `worker_capacity.py:239`. This prevents RunPod outages from tripping the circuit breaker.\n\n**FLAG-002 (early termination path missing buffer fix):** Added Step 3 \u2014 apply `max(machines_to_keep_idle, 1)` to `early_desired` calculation in both `control_loop.py:346` and `lifecycle.py:45`. Without this, spawning workers could be killed back to zero warm buffer.\n\n**FLAG-003 (duplicated logic across control_loop.py and phase mixins):** Every step now explicitly lists both locations. Step 1 fixes health.py:121-133 alongside control_loop.py:539-548. Step 4 fixes worker_capacity.py:239 alongside control_loop.py:1336. Step 5 fixes worker_capacity.py:48 alongside control_loop.py:941. Step 3 fixes lifecycle.py:45 alongside control_loop.py:346.\n\n**FLAG-004 (failure-rate test at wrong layer):** Moved the circuit breaker test from `test_scaling_decision_limits.py` (which tests the pure function) to a new `tests/test_circuit_breaker.py` that mocks `db.get_workers` and calls `_check_worker_failure_rate()` directly \u2014 the actual method that computes the breaker.",
+      "raised_in": "critique_v1.json",
+      "status": "verified",
+      "severity": "significant",
+      "verified": true,
+      "addressed_in": "plan_v2.md",
+      "verified_in": "critique_v2.json"
+    },
+    {
+      "id": "FLAG-003",
+      "concern": "Control decomposition: The duplication cleanup is still incomplete. The revised plan says fixes must be applied to both `control_loop.py` and the mirrored phase mixins, but it still leaves at least two duplicated paths out of scope: the legacy scaling method in `control/phases/scaling_decision.py` and the failsafe path in `control/phases/periodic.py`. That means the repository would still contain conflicting scaling/termination behavior after the work lands.",
+      "category": "maintainability",
+      "severity_hint": "likely-significant",
+      "evidence": "Plan Step 10 only calls out the legacy method in `control_loop.py:801-861`, but the mirrored legacy implementation in `gpu_orchestrator/control/phases/scaling_decision.py:43-99` still uses `buffer_based = busy_count + config.machines_to_keep_idle` at line 70. Plan Step 9 only updates `control_loop.py:1546-1594`, while the duplicated failsafe implementation remains in `gpu_orchestrator/control/phases/periodic.py:175-229`. This is the same repository-duplication issue previously flagged under FLAG-003.",
+      "raised_in": "critique_v2.json",
+      "status": "open",
+      "severity": "significant",
+      "verified": false,
+      "addressed_in": "plan_v2.md"
+    },
+    {
+      "id": "FLAG-004",
+      "concern": "Validation: The proposed failure-rate test is attached to the wrong layer, so the plan does not actually verify one of its explicit success criteria.",
+      "category": "completeness",
+      "severity_hint": "likely-significant",
+      "evidence": "Revised plan to address all 4 flags:\n\n**FLAG-001 (circuit breaker spawn-failure conflation):** Added Step 4 \u2014 change spawn failure handling from `mark_worker_error` (\u2192 `error` status) to `update_worker_status` with `terminated` status and `spawn_failed` reason, in both `control_loop.py:1336` and `worker_capacity.py:239`. This prevents RunPod outages from tripping the circuit breaker.\n\n**FLAG-002 (early termination path missing buffer fix):** Added Step 3 \u2014 apply `max(machines_to_keep_idle, 1)` to `early_desired` calculation in both `control_loop.py:346` and `lifecycle.py:45`. Without this, spawning workers could be killed back to zero warm buffer.\n\n**FLAG-003 (duplicated logic across control_loop.py and phase mixins):** Every step now explicitly lists both locations. Step 1 fixes health.py:121-133 alongside control_loop.py:539-548. Step 4 fixes worker_capacity.py:239 alongside control_loop.py:1336. Step 5 fixes worker_capacity.py:48 alongside control_loop.py:941. Step 3 fixes lifecycle.py:45 alongside control_loop.py:346.\n\n**FLAG-004 (failure-rate test at wrong layer):** Moved the circuit breaker test from `test_scaling_decision_limits.py` (which tests the pure function) to a new `tests/test_circuit_breaker.py` that mocks `db.get_workers` and calls `_check_worker_failure_rate()` directly \u2014 the actual method that computes the breaker.",
+      "raised_in": "critique_v1.json",
+      "status": "verified",
+      "severity": "significant",
+      "verified": true,
+      "addressed_in": "plan_v2.md",
+      "verified_in": "critique_v2.json"
+    }
+  ]
+}

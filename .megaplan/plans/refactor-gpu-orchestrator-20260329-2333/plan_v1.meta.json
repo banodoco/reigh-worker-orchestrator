@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "timestamp": "2026-03-29T21:36:34Z",
+  "hash": "sha256:faf1220e33ec25f447c8f6dd980a68c41f1400a995d1e66789c5bc891a1e2cba",
+  "questions": [
+    "Should _check_worker_task_failure_streak (queries DB for failure history) also be absorbed into derive_worker_state(), or should it remain a side-effect in the health phase? Moving it would require making derive_worker_state() async (it's currently a pure function), which changes its testing story significantly.",
+    "The _perform_basic_health_check function (control_loop.py ~line 550) does a RunPod SSH check beyond just heartbeat age. Should this be kept as a separate real-time probe, or should its result be cached/folded into derived state? It seems like a genuine runtime check vs. a derivable verdict.",
+    "For Phase 2 (mixin wiring): the phases/ files currently contain copies of the old logic including the duplicate health checks. Should we update them in-place during Step 5, or first land Phase 1 on control_loop.py, verify it works, THEN update the mixin copies to match? (I assume the latter \u2014 incremental is safer.)",
+    "Is there a CI pipeline or specific test command to run? I see tests/ but want to confirm the right invocation (pytest, specific markers, etc)."
+  ],
+  "success_criteria": [
+    "DerivedWorkerState is the ONLY place that computes should_terminate verdicts \u2014 grep for heartbeat datetime arithmetic in control_loop.py returns zero matches outside of worker_state.py",
+    "_health_check_active_workers contains no if-branches that compute health verdicts \u2014 it only reads ws.should_terminate and ws.termination_reason and acts on them",
+    "_failsafe_stale_worker_check operates on List[DerivedWorkerState] not List[Dict] \u2014 no raw heartbeat parsing",
+    "startup_phase is checked in exactly ONE place: _determine_lifecycle in worker_state.py",
+    "All existing tests pass after Phase 1",
+    "control_loop.py reduced to <400 lines after Phase 2 (from 1699)",
+    "New unit tests cover: idle-with-queued-tasks termination, failsafe-stale derivation, startup_phase gating of failsafe"
+  ],
+  "assumptions": [
+    "derive_worker_state() should remain a pure (sync) function \u2014 we won't fold async DB queries like failure streak into it. Those checks stay in the health phase as action triggers, not verdicts.",
+    "The _perform_basic_health_check SSH probe is a runtime check that can't be pre-derived. It stays as a separate call but is only used as a supplementary signal, not a termination verdict source.",
+    "Phase 1 lands on the inline control_loop.py methods first. Phase 2 updates the mixin copies to match and wires them in. We don't try to do both simultaneously.",
+    "The control/phases/ mixin files are the target destination but their current contents are stale copies \u2014 they need to be rewritten with the Phase 1 logic, not merged.",
+    "Task failure streak checking remains a side-effect in the health phase for now, with a future option to cache results in derived state if needed.",
+    "The idle-timeout-with-no-work logic (control_loop.py:564-573) is already represented by is_not_claiming in DerivedWorkerState and doesn't need a separate field."
+  ],
+  "structure_warnings": []
+}

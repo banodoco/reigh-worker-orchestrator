@@ -1,0 +1,153 @@
+{
+  "review_verdict": "approved",
+  "criteria": [
+    {
+      "name": "Review cross-check completed",
+      "pass": true,
+      "evidence": "The refreshed finalize state matches the current tree. The task-touched files listed in finalize.json are present in the diff/status, and the execution_audit.json mismatches are explained by the dirty worktree and by several task files being untracked rather than absent."
+    },
+    {
+      "name": "Success criterion 1: preserve the only warm idle worker with MACHINES_TO_KEEP_IDLE=0",
+      "pass": true,
+      "evidence": "gpu_orchestrator/worker_state.py uses busy_count + max(config.machines_to_keep_idle, 1) for desired_floor and buffer_based, and control_loop.py plus control/phases/worker_capacity.py enforce the same floor during termination. tests/test_scaling_decision_spawn.py includes the 2 busy + 1 idle + keep_idle=0 case with workers_to_terminate == 0."
+    },
+    {
+      "name": "Success criterion 2: idle worker terminations use terminated status, not error",
+      "pass": true,
+      "evidence": "The idle-timeout error block is gone from gpu_orchestrator/control_loop.py and gpu_orchestrator/control/phases/health.py. Idle capacity-based termination remains in PATH B via _terminate_worker rather than _mark_worker_error."
+    },
+    {
+      "name": "Success criterion 3: spawn failures use terminated status with spawn_failed reason",
+      "pass": true,
+      "evidence": "Both _spawn_worker implementations now map RunPod status == error to final_status = terminated and add termination_reason = spawn_failed. The no-runpod-id failure branch also writes terminated/spawn_failed in both gpu_orchestrator/control_loop.py and gpu_orchestrator/control/phases/worker_capacity.py."
+    },
+    {
+      "name": "Success criterion 4: the circuit breaker is not triggered by normal scale-down or spawn failures",
+      "pass": true,
+      "evidence": "_check_worker_failure_rate in both gpu_orchestrator/control_loop.py and gpu_orchestrator/control/phases/worker_capacity.py still counts only status == error. Because spawn failures now land as terminated/spawn_failed, they are excluded from the failure count. tests/test_circuit_breaker.py exercises _check_worker_failure_rate directly with terminated spawn_failed workers."
+    },
+    {
+      "name": "Success criterion 5: early termination respects the buffer minimum",
+      "pass": true,
+      "evidence": "gpu_orchestrator/control_loop.py and gpu_orchestrator/control/phases/lifecycle.py both compute early_desired with max(config.machines_to_keep_idle, 1). tests/gpu_orchestrator/control/phases/test_lifecycle.py verifies the keep_idle=0 case does not kill the only spawning worker."
+    },
+    {
+      "name": "Success criterion 6: PATH B is the sole owner of idle-worker termination decisions",
+      "pass": true,
+      "evidence": "PATH A idle-timeout termination was removed from the health path, and PATH C now skips healthy idle workers with recent heartbeats. That leaves PATH B as the only capacity-based idle termination path."
+    },
+    {
+      "name": "Success criterion 7: PATH C does not terminate healthy idle workers",
+      "pass": true,
+      "evidence": "gpu_orchestrator/control_loop.py and gpu_orchestrator/control/phases/periodic.py both include the ws.is_active and not ws.has_active_task and ws.heartbeat_is_recent guard before stale-worker termination."
+    },
+    {
+      "name": "Success criterion 8: fixes were applied in both control_loop.py and mirrored phase mixins",
+      "pass": true,
+      "evidence": "The buffer-floor, early_desired, spawn-failure, and failsafe-guard changes are present in both the main control loop and the corresponding phase mixins: lifecycle.py, scaling_decision.py, worker_capacity.py, health.py, and periodic.py."
+    },
+    {
+      "name": "Success criterion 9: existing tests were updated and pass",
+      "pass": true,
+      "evidence": "The updated test files are present and reflect the new floor semantics. I could not rerun pytest in this sandbox because it lacks a writable temp directory, but the executor recorded 78/78 passing with TMPDIR=/tmp and the code/tests now align with that claim."
+    },
+    {
+      "name": "Success criterion 10: new tests cover the requested scenarios",
+      "pass": true,
+      "evidence": "tests/test_scaling_decision_spawn.py covers warm-capacity preservation and overcapacity buffer enforcement, tests/gpu_orchestrator/control/phases/test_lifecycle.py covers early termination, and tests/test_circuit_breaker.py covers failure-rate behavior at the _check_worker_failure_rate layer."
+    },
+    {
+      "name": "Settled decision 001: enforce max(machines_to_keep_idle, 1) in code",
+      "pass": true,
+      "evidence": "Relevant scaling/termination logic uses max(config.machines_to_keep_idle, 1) in worker_state.py, control_loop.py, control/phases/lifecycle.py, control/phases/scaling_decision.py, and control/phases/worker_capacity.py. Remaining bare references are config/logging only."
+    },
+    {
+      "name": "Settled decision 002: remove idle-timeout termination from PATH A",
+      "pass": true,
+      "evidence": "The health-path idle-timeout termination block is absent from both gpu_orchestrator/control_loop.py and gpu_orchestrator/control/phases/health.py."
+    },
+    {
+      "name": "Settled decision 003: keep the legacy scaling path in this PR",
+      "pass": true,
+      "evidence": "The legacy path still exists in gpu_orchestrator/control_loop.py and gpu_orchestrator/control/phases/scaling_decision.py, with the requested TODO comment retained in control_loop.py."
+    },
+    {
+      "name": "Settled decision 004: spawn failures should use terminated, not error",
+      "pass": true,
+      "evidence": "The previously ambiguous status == error branch now writes terminated plus spawn_failed metadata in both _spawn_worker implementations, and there are no final_status = error assignments left in those methods."
+    },
+    {
+      "name": "Settled decision 005: circuit-breaker test belongs at _check_worker_failure_rate layer",
+      "pass": true,
+      "evidence": "tests/test_circuit_breaker.py instantiates OrchestratorControlLoop and calls _check_worker_failure_rate directly instead of testing the pure scaling function."
+    }
+  ],
+  "issues": [],
+  "summary": "Approved. The refreshed implementation closes the earlier spawn-failure gap in both code paths, the success criteria now check out against the current tree, and the remaining audit findings are advisory artifacts of a dirty worktree rather than implementation defects.",
+  "task_verdicts": [
+    {
+      "task_id": "T1",
+      "reviewer_verdict": "Pass. The Phase 1 fixes are present in the main loop and mirrored mixins: idle-timeout termination was removed from health, the minimum warm-buffer floor is enforced consistently, the legacy path keeps the floor fix, and spawn failures now land as terminated/spawn_failed in both _spawn_worker implementations.",
+      "evidence_files": [
+        "gpu_orchestrator/control_loop.py",
+        "gpu_orchestrator/worker_state.py",
+        "gpu_orchestrator/control/phases/health.py",
+        "gpu_orchestrator/control/phases/lifecycle.py",
+        "gpu_orchestrator/control/phases/scaling_decision.py",
+        "gpu_orchestrator/control/phases/worker_capacity.py"
+      ]
+    },
+    {
+      "task_id": "T2",
+      "reviewer_verdict": "Pass. The healthy-idle guard is present in both failsafe implementations and preserves PATH B ownership for capacity-based idle termination.",
+      "evidence_files": [
+        "gpu_orchestrator/control_loop.py",
+        "gpu_orchestrator/control/phases/periodic.py"
+      ]
+    },
+    {
+      "task_id": "T3",
+      "reviewer_verdict": "Pass. The requested tests were added or updated, and they cover the warm-buffer, overcapacity, early-termination, and circuit-breaker scenarios at the intended layers. The helper default discrepancy noted in the audit is advisory only because the sensitive tests explicitly set machines_to_keep_idle=0 where needed.",
+      "evidence_files": [
+        "tests/test_scaling_decision_spawn.py",
+        "tests/test_scaling_decision_limits.py",
+        "tests/gpu_orchestrator/control/phases/test_lifecycle.py",
+        "tests/test_circuit_breaker.py",
+        "tests/scaling_decision_helpers.py"
+      ]
+    },
+    {
+      "task_id": "T4",
+      "reviewer_verdict": "Pass. This was a verification-only task, so the lack of files_changed is consistent. The strengthened grep set matches the current tree, including the corrected spawn-failure mapping, and the recorded pytest runs are reasonable to accept despite this sandbox not being able to rerun them.",
+      "evidence_files": [
+        "gpu_orchestrator/control_loop.py",
+        "gpu_orchestrator/control/phases/worker_capacity.py",
+        "gpu_orchestrator/config.py",
+        "finalize.json",
+        "execution_audit.json"
+      ]
+    }
+  ],
+  "sense_check_verdicts": [
+    {
+      "sense_check_id": "SC1",
+      "verdict": "Confirmed. Current code inspection shows max(config.machines_to_keep_idle, 1) everywhere relevant in scaling/termination logic, with remaining bare references limited to config/logging paths."
+    },
+    {
+      "sense_check_id": "SC2",
+      "verdict": "Confirmed. The idle-timeout mark_worker_error block is removed, while queued-work health checks, busy-worker heartbeat handling, and stuck-task detection remain intact."
+    },
+    {
+      "sense_check_id": "SC3",
+      "verdict": "Confirmed. Both failsafe implementations skip healthy idle workers with recent heartbeats and still process spawning-timeout and stale/lost-heartbeat cases."
+    },
+    {
+      "sense_check_id": "SC4",
+      "verdict": "Confirmed. The new and updated tests cover the four scenarios called out in the plan at the intended layers."
+    },
+    {
+      "sense_check_id": "SC5",
+      "verdict": "Confirmed. The current code satisfies the grep-based checks, and the executor-reported full-suite pass is consistent with the inspected implementation even though this sandbox cannot rerun pytest without writable temp storage."
+    }
+  ]
+}

@@ -98,15 +98,69 @@ async def count_tasks(client: httpx.AsyncClient, run_type: Optional[str]) -> Dic
         return {"queued_plus_active": 0, "raw": None}
 
 
-async def claim_next_task(client: httpx.AsyncClient, worker_id: str, run_type: Optional[str]) -> Optional[Dict[str, Any]]:
-    """Claim the next available task for processing."""
+async def _recover_phantom_claim(
+    worker_id: str,
+    known_active_ids: set[str],
+) -> Optional[Dict[str, Any]]:
+    """After a claim timeout, check the DB for a task we may have claimed.
+
+    The claim RPC is atomic — if it assigned a task to us, that task is now
+    In Progress with our worker_id.  We query for in-progress tasks on this
+    worker and return any that aren't already being tracked.
+    """
+    try:
+        import os
+        from supabase import create_client
+
+        url = os.getenv("SUPABASE_URL")
+        key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+        if not url or not key:
+            return None
+
+        sb = create_client(url, key)
+        result = (
+            sb.table("tasks")
+            .select("id, task_type, params, project_id")
+            .eq("status", "In Progress")
+            .eq("worker_id", worker_id)
+            .order("generation_started_at", desc=True)
+            .limit(10)
+            .execute()
+        )
+
+        if not result.data:
+            return None
+
+        for task in result.data:
+            if task["id"] not in known_active_ids:
+                return {
+                    "task_id": task["id"],
+                    "task_type": task.get("task_type"),
+                    "params": task.get("params"),
+                    "project_id": task.get("project_id"),
+                }
+
+        return None
+    except Exception as exc:
+        logger.warning(f"[TASK_CLAIM] Phantom claim recovery query failed: {exc}")
+        return None
+
+
+async def claim_next_task(
+    client: httpx.AsyncClient,
+    worker_id: str,
+    run_type: Optional[str],
+    known_active_ids: Optional[set[str]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Claim the next available task for processing.
+
+    On timeout, queries the DB to recover a phantom claim (claim that
+    succeeded server-side but whose response was lost).  *known_active_ids*
+    lets the recovery query skip tasks we're already processing.
+    """
     urls = _get_supabase_edge_urls()
     headers = _auth_headers()
-    
-    # Enhanced logging for debugging
-    logger.debug(f"[TASK_CLAIM] Worker {worker_id} attempting to claim task with run_type: {run_type}")
-    logger.debug(f"[TASK_CLAIM] URLs: {urls}")
-    
+
     if not urls["claim"] or not headers["Authorization"]:
         if not _has_logged_missing_env():
             logger.error("[TASK_CLAIM] Missing endpoint configuration or request context; cannot claim tasks")
@@ -117,29 +171,32 @@ async def claim_next_task(client: httpx.AsyncClient, worker_id: str, run_type: O
     payload: Dict[str, Any] = {"worker_id": worker_id}
     if run_type:
         payload["run_type"] = run_type
-    
-    logger.debug(f"[TASK_CLAIM] Sending claim request with payload: {payload}")
-    
+
     try:
-        resp = await client.post(urls["claim"], headers=headers, json=payload, timeout=15)
-        
-        logger.debug(f"[TASK_CLAIM] Response status: {resp.status_code}")
-        
+        resp = await client.post(urls["claim"], headers=headers, json=payload, timeout=30)
+
         if resp.status_code == 204:
-            logger.info(f"[TASK_CLAIM] Worker {worker_id}: No tasks available to claim (204)")
             return None
-            
+
         resp.raise_for_status()
         data = resp.json()
         logger.info(f"[TASK_CLAIM] Worker {worker_id}: Successfully claimed task: {data.get('task_id')} ({data.get('task_type')})")
-        logger.debug(f"[TASK_CLAIM] Full task data: {data}")
-        
-        # No task type filtering - process any task with matching run_type
-        # The run_type filtering is handled by the edge function
-            
         return data
+
+    except httpx.TimeoutException:
+        # Timeout is ambiguous: the claim may have succeeded server-side.
+        # Check the DB to find out.
+        logger.warning(f"[TASK_CLAIM] Worker {worker_id}: Claim timed out — checking for phantom claim")
+        recovered = await _recover_phantom_claim(worker_id, known_active_ids or set())
+        if recovered:
+            logger.warning(
+                f"[TASK_CLAIM] Worker {worker_id}: Recovered phantom claim: "
+                f"{recovered.get('task_id')} ({recovered.get('task_type')})"
+            )
+        return recovered
+
     except (httpx.HTTPError, TypeError, ValueError) as exc:
-        logger.error(f"[TASK_CLAIM] Worker {worker_id}: Claim failed with error: {exc}")
+        logger.error(f"[TASK_CLAIM] Worker {worker_id}: Claim failed: {exc}")
         if isinstance(exc, httpx.HTTPStatusError):
             logger.error(f"[TASK_CLAIM] Response body: {exc.response.text}")
         await asyncio.sleep(0.5)
@@ -168,7 +225,7 @@ async def mark_complete_via_edge_function(client: httpx.AsyncClient, task_id: st
             edge_url = f"{supabase_url}/functions/v1/update-task-status" if supabase_url else ""
             payload = {
                 "task_id": task_id,
-                "status": "Completed",
+                "status": "Complete",
                 "output_location": output_location
             }
         else:

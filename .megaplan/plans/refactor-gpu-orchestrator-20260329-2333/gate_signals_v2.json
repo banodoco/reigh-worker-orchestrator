@@ -1,0 +1,83 @@
+{
+  "robustness": "standard",
+  "signals": {
+    "iteration": 2,
+    "idea": "Refactor GPU orchestrator worker health/lifecycle into single source of truth. Currently 3 separate places assess worker health with overlapping inconsistent logic: worker_state.py _determine_lifecycle, control_loop.py _failsafe_stale_worker_check, control_loop.py _reconcile_orphaned_tasks. Each has own idea of should-I-kill-this-worker and they diverge. startup_phase had to be patched into all 3 independently. Goal: DerivedWorkerState is the ONE verdict, everything else reads it. control/phases/ refactoring started but not wired in. Make obvious and easy to understand. Key files: gpu_orchestrator/worker_state.py, gpu_orchestrator/control_loop.py (1600+ lines god object), gpu_orchestrator/control/phases/*.py, gpu_orchestrator/database.py",
+    "significant_flags": 1,
+    "unresolved_flags": [
+      {
+        "id": "worker-lifecycle-failsafe-verdict-still-duplicated",
+        "concern": "Worker lifecycle: the revised Step 3 still leaves `_failsafe_stale_worker_check()` as a second health-verdict engine. It stops parsing raw timestamps, but it still recomputes `age > cutoff` inside `control_loop.py` instead of consuming a precomputed verdict from `DerivedWorkerState`, so it does not fully achieve the stated goal that derived state is the one verdict and everything else only reads it.",
+        "category": "correctness",
+        "severity": "significant",
+        "status": "open"
+      }
+    ],
+    "resolved_flags": [
+      {
+        "id": "worker-lifecycle-root-cause-mismatch",
+        "concern": "Worker lifecycle: CRITICAL: the plan's root-cause analysis is not aligned with the repo. `derive_worker_state()` already owns several queued/stale termination verdicts, and `_reconcile_orphaned_tasks()` is not a competing kill-worker path at all. The remaining duplication is narrower: inline health checks plus failsafe, and the stale copies in `control/phases/`.",
+        "resolution": "Corrected root-cause analysis (removed _reconcile_orphaned_tasks as a competing path \u2014 it only handles dead workers). Preserved failsafe startup_phase guard via new `in_startup_phase` field on DerivedWorkerState. Narrowed health check cleanup to actual duplicates (stale+queued at lines 539-547) and dead code (no-heartbeat branches at 521-528, 556-562), explicitly keeping legitimate async checks (idle timeout, failure streaks, basic health). Dropped Phase 2 (mixin wiring) as out of scope."
+      },
+      {
+        "id": "worker-lifecycle-startup-phase-regression",
+        "concern": "Worker lifecycle: CRITICAL: Step 3's plan to delete the failsafe `startup_phase` guard is unsafe. In the current code, `_determine_lifecycle()` only consults `startup_phase` after a real heartbeat exists, so no-heartbeat startup workers would lose their only protection and become failsafe-eligible once they exceed `spawning_timeout_sec`.",
+        "resolution": "Corrected root-cause analysis (removed _reconcile_orphaned_tasks as a competing path \u2014 it only handles dead workers). Preserved failsafe startup_phase guard via new `in_startup_phase` field on DerivedWorkerState. Narrowed health check cleanup to actual duplicates (stale+queued at lines 539-547) and dead code (no-heartbeat branches at 521-528, 556-562), explicitly keeping legitimate async checks (idle timeout, failure streaks, basic health). Dropped Phase 2 (mixin wiring) as out of scope."
+      },
+      {
+        "id": "scaling-health-boundary-idle-timeout",
+        "concern": "Scaling/health boundary: Step 2 removes the no-work idle-timeout branch on the claim that `DerivedWorkerState.is_not_claiming` already covers it, but the repo does not support that. `is_not_claiming` is only derived when queued work exists, while the current no-work path depends on task-history queries and is also reused by scale-down execution. The plan needs an explicit owner for that behavior instead of treating it as already derived.",
+        "resolution": "Corrected root-cause analysis (removed _reconcile_orphaned_tasks as a competing path \u2014 it only handles dead workers). Preserved failsafe startup_phase guard via new `in_startup_phase` field on DerivedWorkerState. Narrowed health check cleanup to actual duplicates (stale+queued at lines 539-547) and dead code (no-heartbeat branches at 521-528, 556-562), explicitly keeping legitimate async checks (idle timeout, failure streaks, basic health). Dropped Phase 2 (mixin wiring) as out of scope."
+      },
+      {
+        "id": "control-refactor-scope-creep",
+        "concern": "Control refactor: Scope creep: Phase 2 turns a focused health-verdict consolidation into a second broad class-decomposition project. The mixin infrastructure already exists, so bundling full host rewiring and a `<400`-line target into the same change increases risk without being necessary to prove the single-source-of-truth fix.",
+        "resolution": "Corrected root-cause analysis (removed _reconcile_orphaned_tasks as a competing path \u2014 it only handles dead workers). Preserved failsafe startup_phase guard via new `in_startup_phase` field on DerivedWorkerState. Narrowed health check cleanup to actual duplicates (stale+queued at lines 539-547) and dead code (no-heartbeat branches at 521-528, 556-562), explicitly keeping legitimate async checks (idle timeout, failure streaks, basic health). Dropped Phase 2 (mixin wiring) as out of scope."
+      }
+    ],
+    "weighted_score": 2.0,
+    "weighted_history": [
+      6.75
+    ],
+    "plan_delta_from_previous": 85.03,
+    "recurring_critiques": [],
+    "scope_creep_flags": [],
+    "loop_summary": "Iteration 2. Weighted score trajectory: 6.75 -> 2.0. Plan deltas: 85.0%. Recurring critiques: 0. Resolved flags: 4. Open significant flags: 1.",
+    "debt_overlaps": [],
+    "escalated_debt_subsystems": []
+  },
+  "warnings": [],
+  "criteria_check": {
+    "count": 8,
+    "items": [
+      "DerivedWorkerState has `in_startup_phase: bool` field that is set regardless of heartbeat status",
+      "`_failsafe_stale_worker_check` accepts `List[DerivedWorkerState]` and does zero raw datetime parsing or metadata access",
+      "`_health_check_active_workers` has no duplicate stale+queued check \u2014 the only verdict branch is `ws.should_terminate` at the top",
+      "Dead code removed: no-heartbeat branches in health check (lines 521-528, 556-562) are gone",
+      "startup_phase raw metadata access (`metadata.get('startup_phase')`) does not appear in `_failsafe_stale_worker_check`",
+      "Idle-timeout-with-no-work path (lines 564-573) is preserved unchanged in health phase",
+      "All existing tests pass",
+      "New tests cover: in_startup_phase field derivation (with and without heartbeat), failsafe skipping startup workers"
+    ]
+  },
+  "preflight_results": {
+    "project_dir_exists": true,
+    "project_dir_writable": true,
+    "success_criteria_present": true,
+    "claude_available": true,
+    "codex_available": true
+  },
+  "unresolved_flags": [
+    {
+      "id": "worker-lifecycle-failsafe-verdict-still-duplicated",
+      "concern": "Worker lifecycle: the revised Step 3 still leaves `_failsafe_stale_worker_check()` as a second health-verdict engine. It stops parsing raw timestamps, but it still recomputes `age > cutoff` inside `control_loop.py` instead of consuming a precomputed verdict from `DerivedWorkerState`, so it does not fully achieve the stated goal that derived state is the one verdict and everything else only reads it.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "In the repo today, `DerivedWorkerState` exposes raw timing fields plus one termination verdict (`gpu_orchestrator/worker_state.py:40-79`, `gpu_orchestrator/worker_state.py:182-238`). The current failsafe is a separate evaluator that applies its own cutoff math (`gpu_orchestrator/control_loop.py:1577-1613`). The revised plan replaces raw datetime parsing with `ws.heartbeat_age_sec` / `ws.effective_age_sec`, but it still keeps the cutoff comparison in failsafe rather than moving that verdict into `worker_state.py`.",
+      "raised_in": "critique_v2.json",
+      "status": "open",
+      "severity": "significant",
+      "verified": false
+    }
+  ]
+}

@@ -23,9 +23,10 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def test_parameter_building():
-    """Unit test: Verify parameter building logic works correctly."""
-    from api_orchestrator.main import build_fal_lora_list, normalize_resolution
+def run_parameter_building_checks() -> bool:
+    """Run parameter-building checks used by both pytest and CLI mode."""
+    from api_orchestrator.fal_utils import build_fal_lora_list
+    from api_orchestrator.image_utils import normalize_resolution
     
     print("\n" + "="*60)
     print("UNIT TEST: Parameter Building Logic")
@@ -61,7 +62,7 @@ def test_parameter_building():
         }
     }
     loras = build_fal_lora_list(params)
-    if len(loras) == 2 and all(l["path"].startswith("https://") for l in loras):
+    if len(loras) == 2 and all(item["path"].startswith("https://") for item in loras):
         print(f"   ✅ PASSED: {loras}")
     else:
         print(f"   ❌ FAILED: {loras}")
@@ -105,6 +106,11 @@ def test_parameter_building():
     return all_passed
 
 
+def test_parameter_building():
+    """Pytest entrypoint for fal parameter-building checks."""
+    assert run_parameter_building_checks()
+
+
 # Model-specific LoRAs from Huggingface
 # Using smaller, compatible LoRAs that work with fal.ai
 LORA_FOR_MODEL = {
@@ -126,7 +132,7 @@ LORA_FOR_MODEL = {
 }
 
 
-async def test_fal_task_live(task_type: str, with_lora: bool = False):
+async def run_fal_task_live(task_type: str, with_lora: bool = False):
     """Live test: Call actual fal.ai API."""
     import httpx
     from api_orchestrator.main import process_api_task
@@ -165,7 +171,7 @@ async def test_fal_task_live(task_type: str, with_lora: bool = False):
     async with httpx.AsyncClient(limits=limits, timeout=120.0) as client:
         try:
             result = await process_api_task(task, client)
-            print(f"\n✅ SUCCESS!")
+            print("\n✅ SUCCESS!")
             print(f"Result: {result}")
             
             if 'output_url' in result:
@@ -191,7 +197,7 @@ async def main():
     args = parser.parse_args()
     
     # Always run unit tests first
-    unit_tests_passed = test_parameter_building()
+    unit_tests_passed = run_parameter_building_checks()
     
     if not args.live:
         print("\n💡 Tip: Run with --live to test against actual fal.ai API")
@@ -224,7 +230,7 @@ async def main():
     # Run tests
     results = {}
     for task_type in task_types_to_test:
-        success, result = await test_fal_task_live(task_type, with_lora=args.with_lora)
+        success, result = await run_fal_task_live(task_type, with_lora=args.with_lora)
         results[task_type] = {"success": success, "result": result}
     
     # Summary

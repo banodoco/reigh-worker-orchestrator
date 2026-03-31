@@ -1,0 +1,17 @@
+{
+  "flags": [
+    {
+      "id": "FLAG-003",
+      "concern": "Control decomposition: The duplication cleanup is still incomplete. The revised plan says fixes must be applied to both `control_loop.py` and the mirrored phase mixins, but it still leaves at least two duplicated paths out of scope: the legacy scaling method in `control/phases/scaling_decision.py` and the failsafe path in `control/phases/periodic.py`. That means the repository would still contain conflicting scaling/termination behavior after the work lands.",
+      "category": "maintainability",
+      "severity_hint": "likely-significant",
+      "evidence": "Plan Step 10 only calls out the legacy method in `control_loop.py:801-861`, but the mirrored legacy implementation in `gpu_orchestrator/control/phases/scaling_decision.py:43-99` still uses `buffer_based = busy_count + config.machines_to_keep_idle` at line 70. Plan Step 9 only updates `control_loop.py:1546-1594`, while the duplicated failsafe implementation remains in `gpu_orchestrator/control/phases/periodic.py:175-229`. This is the same repository-duplication issue previously flagged under FLAG-003."
+    }
+  ],
+  "verified_flag_ids": [
+    "FLAG-001",
+    "FLAG-002",
+    "FLAG-004"
+  ],
+  "disputed_flag_ids": []
+}

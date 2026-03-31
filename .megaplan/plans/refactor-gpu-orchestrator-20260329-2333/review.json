@@ -1,0 +1,136 @@
+{
+  "review_verdict": "approved",
+  "criteria": [
+    {
+      "name": "Review cross-check completed",
+      "pass": true,
+      "evidence": "Executor claims for the seven relevant files match the current worktree: `git status --short` shows modified `gpu_orchestrator/worker_state.py`, `gpu_orchestrator/control_loop.py`, and untracked phase/test files under `gpu_orchestrator/control/phases/` and `tests/gpu_orchestrator/control/phases/`. The audit warning about missing test files is explained by those files being untracked, not absent."
+    },
+    {
+      "name": "Success criterion: DerivedWorkerState exposes in_startup_phase regardless of heartbeat status",
+      "pass": true,
+      "evidence": "`gpu_orchestrator/worker_state.py` adds `in_startup_phase: bool` to `DerivedWorkerState`, computes it from `startup_phase` before lifecycle derivation, and returns it in `derive_worker_state()`. The computation is independent of `last_heartbeat`."
+    },
+    {
+      "name": "Success criterion: _failsafe_stale_worker_check consumes DerivedWorkerState and stops raw metadata/timestamp parsing",
+      "pass": true,
+      "evidence": "`gpu_orchestrator/control_loop.py` now defines `_failsafe_stale_worker_check(self, worker_states: List[DerivedWorkerState], ...)`. Inside the method it uses `ws.is_terminal`, `ws.in_startup_phase`, `ws.should_terminate`, `ws.is_spawning`, `ws.heartbeat_age_sec`, and `ws.effective_age_sec`; there is no `metadata.get('startup_phase')`, `datetime.fromisoformat`, `worker.get('last_heartbeat')`, or `worker['status']` in that method body."
+    },
+    {
+      "name": "Success criterion: _health_check_active_workers no longer duplicates stale+queued termination logic",
+      "pass": true,
+      "evidence": "In `gpu_orchestrator/control_loop.py`, `_health_check_active_workers()` now handles termination only through the top-level `if ws.should_terminate:` verdict. The queued-work path now only runs `_perform_basic_health_check(worker)` before continuing."
+    },
+    {
+      "name": "Success criterion: dead no-heartbeat branches were removed from health check",
+      "pass": true,
+      "evidence": "The prior `No heartbeat with active tasks` branch and the queued-task `No heartbeat or activity with tasks queued` branch are absent from `gpu_orchestrator/control_loop.py`. The active-task branch now logs heartbeat age only, and the queued-task branch has no no-heartbeat fallback."
+    },
+    {
+      "name": "Success criterion: startup_phase raw metadata access is absent from failsafe",
+      "pass": true,
+      "evidence": "The canonical failsafe in `gpu_orchestrator/control_loop.py` uses `ws.in_startup_phase` and contains no `metadata.get('startup_phase')` access."
+    },
+    {
+      "name": "Success criterion: idle-timeout-with-no-work path is preserved",
+      "pass": true,
+      "evidence": "`gpu_orchestrator/control_loop.py` still contains the `else:` branch for `task_counts.queued == 0` that calls `_is_worker_idle_with_timeout(worker, self.config.gpu_idle_timeout_sec)` and conditionally terminates above `min_active_gpus`."
+    },
+    {
+      "name": "Success criterion: tests were added for startup-phase derivation and failsafe skip behavior",
+      "pass": true,
+      "evidence": "`tests/gpu_orchestrator/control/phases/test_state.py` contains four startup-phase derivation tests covering heartbeat/no-heartbeat/none/running cases. `tests/gpu_orchestrator/control/phases/test_periodic.py` contains `test_failsafe_skips_startup_phase_workers`."
+    },
+    {
+      "name": "Success criterion: existing tests pass",
+      "pass": true,
+      "evidence": "Executor evidence reports `python -m pytest tests/ -v` passing with `74 passed, 0 failed`. Nothing in the diff contradicts that, and the added helper updates in `tests/scaling_decision_helpers.py` match the dataclass/config signature changes needed for the suite."
+    },
+    {
+      "name": "Settled decision: derive_worker_state remains pure and synchronous",
+      "pass": true,
+      "evidence": "`gpu_orchestrator/worker_state.py` stays a pure synchronous derivation function. No async calls or DB access were introduced there."
+    },
+    {
+      "name": "Settled decision: mixin wiring stayed out of scope",
+      "pass": true,
+      "evidence": "`gpu_orchestrator/control/phases/health.py` and `gpu_orchestrator/control/phases/periodic.py` were updated as stale copies, but `rg` found no wiring from `gpu_orchestrator/control_loop.py` into `HealthPhaseMixin` or `PeriodicChecksMixin`."
+    },
+    {
+      "name": "Settled decision: _reconcile_orphaned_tasks was left alone",
+      "pass": true,
+      "evidence": "The diffed changes are confined to `worker_state.py`, `control_loop.py` health/periodic sections, phase copies, and tests. `_reconcile_orphaned_tasks` remains present in `gpu_orchestrator/control_loop.py` without refactor spillover."
+    },
+    {
+      "name": "Settled decision: startup protection covers pre-heartbeat workers",
+      "pass": true,
+      "evidence": "The key pre-heartbeat case is implemented in code by deriving `in_startup_phase` before lifecycle computation and is covered by `test_in_startup_phase_set_without_heartbeat` plus the failsafe regression test."
+    }
+  ],
+  "issues": [],
+  "summary": "Approved. The implementation meets the stated success criteria and the settled gate decisions. The audit ambiguity around the new test files is explained by them being untracked files under new directories, not missing work. Residual architectural debt remains as already noted at gate time: the failsafe still performs the final cutoff comparison locally from derived ages, but that was accepted scope and does not block this change.",
+  "task_verdicts": [
+    {
+      "task_id": "T1",
+      "reviewer_verdict": "Pass. `gpu_orchestrator/worker_state.py` adds `in_startup_phase`, computes it before `_determine_lifecycle()`, and returns it on the derived state, preserving the pre-heartbeat startup safety case.",
+      "evidence_files": [
+        "gpu_orchestrator/worker_state.py",
+        "tests/gpu_orchestrator/control/phases/test_state.py"
+      ]
+    },
+    {
+      "task_id": "T2",
+      "reviewer_verdict": "Pass. The duplicate stale+queued termination branch and both no-heartbeat dead branches are removed from `_health_check_active_workers()`, while the queued basic health check and no-work idle-timeout path remain.",
+      "evidence_files": [
+        "gpu_orchestrator/control_loop.py"
+      ]
+    },
+    {
+      "task_id": "T3",
+      "reviewer_verdict": "Pass. `_failsafe_stale_worker_check()` now accepts `List[DerivedWorkerState]`, reads derived fields only, skips startup and already-terminating workers, and `_run_periodic_checks()` passes `worker_states` directly.",
+      "evidence_files": [
+        "gpu_orchestrator/control_loop.py"
+      ]
+    },
+    {
+      "task_id": "T4",
+      "reviewer_verdict": "Pass. The stale phase copies mirror the canonical health and periodic logic, and there is no evidence of accidental mixin wiring beyond keeping the copies in sync.",
+      "evidence_files": [
+        "gpu_orchestrator/control/phases/health.py",
+        "gpu_orchestrator/control/phases/periodic.py",
+        "gpu_orchestrator/control_loop.py"
+      ]
+    },
+    {
+      "task_id": "T5",
+      "reviewer_verdict": "Pass. The startup-phase derivation tests and failsafe regression test are present, and the shared helper was updated to match the new `DerivedWorkerState`/`OrchestratorConfig` signatures required for the reported green suite.",
+      "evidence_files": [
+        "tests/gpu_orchestrator/control/phases/test_state.py",
+        "tests/gpu_orchestrator/control/phases/test_periodic.py",
+        "tests/scaling_decision_helpers.py"
+      ]
+    }
+  ],
+  "sense_check_verdicts": [
+    {
+      "sense_check_id": "SC1",
+      "verdict": "Confirmed. `in_startup_phase` is computed independently of heartbeat presence in `gpu_orchestrator/worker_state.py`, and `test_in_startup_phase_set_without_heartbeat` covers the pre-heartbeat spawning case explicitly."
+    },
+    {
+      "sense_check_id": "SC2",
+      "verdict": "Confirmed. In `gpu_orchestrator/control_loop.py`, `ws.should_terminate` is the only stale-heartbeat verdict path in `_health_check_active_workers()`, and the remaining queued-work branch only invokes `_perform_basic_health_check(worker)`."
+    },
+    {
+      "sense_check_id": "SC3",
+      "verdict": "Confirmed. The canonical `_failsafe_stale_worker_check()` contains none of the forbidden raw-data patterns and uses only derived-state fields plus a raw worker fetch inside the cleanup loop."
+    },
+    {
+      "sense_check_id": "SC4",
+      "verdict": "Confirmed. `gpu_orchestrator/control/phases/health.py` and `gpu_orchestrator/control/phases/periodic.py` reflect the same key branch structure as the canonical methods: no duplicate stale/no-heartbeat health branches, and failsafe logic driven by `DerivedWorkerState` fields."
+    },
+    {
+      "sense_check_id": "SC5",
+      "verdict": "Confirmed. The new tests cover both startup-phase heartbeat states plus the negative cases, and the executor\u2019s reported full-suite result is consistent with the helper/test updates now present in the tree."
+    }
+  ]
+}

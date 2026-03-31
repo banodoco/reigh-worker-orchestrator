@@ -1,0 +1,46 @@
+{
+  "output": "Implemented T5 by expanding the existing phase test files with four `derive_worker_state` startup-phase tests and one periodic failsafe regression test, plus updating the shared test helper to match the current `DerivedWorkerState` and `OrchestratorConfig` signatures. Full verification passed: `python -m pytest tests/ -v` completed with `74 passed, 0 failed`, and the canonical `_failsafe_stale_worker_check` still contains no raw `metadata.get('startup_phase')` access or raw datetime parsing/arithmetic against worker heartbeat/creation fields.",
+  "files_changed": [
+    "tests/gpu_orchestrator/control/phases/test_state.py",
+    "tests/gpu_orchestrator/control/phases/test_periodic.py",
+    "tests/scaling_decision_helpers.py"
+  ],
+  "commands_run": [
+    "sed -n '1,260p' tests/gpu_orchestrator/control/phases/test_state.py",
+    "sed -n '1,260p' tests/gpu_orchestrator/control/phases/test_periodic.py",
+    "sed -n '1,180p' tests/scaling_decision_helpers.py",
+    "python -m pytest tests/ -v",
+    "python - <<'PY'\nfrom pathlib import Path\ntext = Path('gpu_orchestrator/control_loop.py').read_text()\nstart = text.index('    async def _failsafe_stale_worker_check')\nend = text.index('    async def _efficient_zombie_check', start)\nblock = text[start:end]\nchecks = {\n    \"metadata.get('startup_phase')\": \"metadata.get('startup_phase')\" in block,\n    'datetime.fromisoformat': 'datetime.fromisoformat' in block,\n    \"worker.get('last_heartbeat')\": \"worker.get('last_heartbeat')\" in block,\n    \"worker['created_at']\": \"worker['created_at']\" in block,\n}\nprint(checks)\nPY",
+    "git status --short -- tests/scaling_decision_helpers.py tests/gpu_orchestrator/control/phases/test_state.py tests/gpu_orchestrator/control/phases/test_periodic.py gpu_orchestrator/worker_state.py gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py",
+    "test -w .megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_4.json && echo writable || echo not_writable"
+  ],
+  "deviations": [
+    "Best-effort checkpointing to `.megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_4.json` was skipped because the target file was not writable.",
+    "Advisory observation mismatch: executor claimed files not observed in git status/content hash delta: tests/gpu_orchestrator/control/phases/test_periodic.py, tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Executor claimed changed files not present in git status: tests/gpu_orchestrator/control/phases/test_periodic.py, tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/runpod, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator, tests/orchestrator_common, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py, tests/test_scaling_decision_limits.py, tests/test_scaling_decision_spawn.py"
+  ],
+  "task_updates": [
+    {
+      "task_id": "T5",
+      "status": "done",
+      "executor_notes": "Added four startup-phase tests in `tests/gpu_orchestrator/control/phases/test_state.py` covering the with-heartbeat, without-heartbeat, no-startup-phase, and post-startup (`running`) cases, and added `test_failsafe_skips_startup_phase_workers` in `tests/gpu_orchestrator/control/phases/test_periodic.py`. Updated `tests/scaling_decision_helpers.py` for the current dataclass/config signatures by adding the new `in_startup_phase` field to `make_worker_state()` and removing the stale `max_task_wait_minutes` config input that caused the first pytest run to fail. Verification: after that helper fix, `python -m pytest tests/ -v` passed with `74 passed, 0 failed`; the canonical `_failsafe_stale_worker_check` block also verified clean for `metadata.get('startup_phase')`, `datetime.fromisoformat`, `worker.get('last_heartbeat')`, and `worker['created_at']` (all absent).",
+      "files_changed": [
+        "tests/gpu_orchestrator/control/phases/test_state.py",
+        "tests/gpu_orchestrator/control/phases/test_periodic.py",
+        "tests/scaling_decision_helpers.py"
+      ],
+      "commands_run": [
+        "python -m pytest tests/ -v",
+        "python - <<'PY' ... failsafe forbidden-pattern verification ... PY",
+        "git status --short -- tests/scaling_decision_helpers.py tests/gpu_orchestrator/control/phases/test_state.py tests/gpu_orchestrator/control/phases/test_periodic.py gpu_orchestrator/worker_state.py gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC5",
+      "executor_note": "Yes. The new tests cover both startup-phase cases with heartbeat and without heartbeat, plus the false cases for missing/past-startup values, and the periodic regression verifies startup-phase workers are skipped by the failsafe. `python -m pytest tests/ -v` completed with `74 passed, 0 failed`."
+    }
+  ]
+}

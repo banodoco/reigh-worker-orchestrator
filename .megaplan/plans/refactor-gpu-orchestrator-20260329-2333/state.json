@@ -1,0 +1,271 @@
+{
+  "name": "refactor-gpu-orchestrator-20260329-2333",
+  "idea": "Refactor GPU orchestrator worker health/lifecycle into single source of truth. Currently 3 separate places assess worker health with overlapping inconsistent logic: worker_state.py _determine_lifecycle, control_loop.py _failsafe_stale_worker_check, control_loop.py _reconcile_orphaned_tasks. Each has own idea of should-I-kill-this-worker and they diverge. startup_phase had to be patched into all 3 independently. Goal: DerivedWorkerState is the ONE verdict, everything else reads it. control/phases/ refactoring started but not wired in. Make obvious and easy to understand. Key files: gpu_orchestrator/worker_state.py, gpu_orchestrator/control_loop.py (1600+ lines god object), gpu_orchestrator/control/phases/*.py, gpu_orchestrator/database.py",
+  "current_state": "done",
+  "iteration": 2,
+  "created_at": "2026-03-29T21:33:30Z",
+  "config": {
+    "project_dir": "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator",
+    "auto_approve": false,
+    "robustness": "standard",
+    "agent": ""
+  },
+  "sessions": {
+    "claude_planner": {
+      "id": "d15a478f-ae22-4f93-b322-a55332bdca3d",
+      "mode": "persistent",
+      "created_at": "2026-03-29T21:36:34Z",
+      "last_used_at": "2026-03-29T21:59:04Z",
+      "refreshed": false
+    },
+    "codex_critic": {
+      "id": "019d3b94-a2c6-71d1-a75c-6c76a9857355",
+      "mode": "persistent",
+      "created_at": "2026-03-29T21:55:29Z",
+      "last_used_at": "2026-03-29T22:00:27Z",
+      "refreshed": false
+    },
+    "claude_gatekeeper": {
+      "id": "1fea634e-31d5-46c1-b4f6-1e4938f1d758",
+      "mode": "persistent",
+      "created_at": "2026-03-29T21:56:17Z",
+      "last_used_at": "2026-03-29T22:01:07Z",
+      "refreshed": false
+    },
+    "claude_finalizer": {
+      "id": "c549b20c-b819-43a1-9ab3-9ac8a6b575b4",
+      "mode": "persistent",
+      "created_at": "2026-03-29T22:04:20Z",
+      "last_used_at": "2026-03-29T22:04:20Z",
+      "refreshed": false
+    },
+    "codex_executor": {
+      "id": "019d3ba1-85e7-7642-a6b9-fa9262edbc49",
+      "mode": "persistent",
+      "created_at": "2026-03-29T22:06:47Z",
+      "last_used_at": "2026-03-29T22:15:20Z",
+      "refreshed": false
+    },
+    "codex_reviewer": {
+      "id": "019d3baa-a304-7160-b685-2c1d6e7507fc",
+      "mode": "persistent",
+      "created_at": "2026-03-29T22:17:42Z",
+      "last_used_at": "2026-03-29T22:17:42Z",
+      "refreshed": false
+    }
+  },
+  "plan_versions": [
+    {
+      "version": 1,
+      "file": "plan_v1.md",
+      "hash": "sha256:faf1220e33ec25f447c8f6dd980a68c41f1400a995d1e66789c5bc891a1e2cba",
+      "timestamp": "2026-03-29T21:36:34Z"
+    },
+    {
+      "version": 2,
+      "file": "plan_v2.md",
+      "hash": "sha256:c442fd70c156b7bed597731133dd2a40558310015eb2656c5f74600b07ba1ad7",
+      "timestamp": "2026-03-29T21:59:04Z"
+    }
+  ],
+  "history": [
+    {
+      "step": "init",
+      "timestamp": "2026-03-29T21:33:30Z",
+      "duration_ms": 0,
+      "cost_usd": 0.0,
+      "result": "success",
+      "environment": {
+        "claude": true,
+        "codex": true
+      }
+    },
+    {
+      "step": "plan",
+      "timestamp": "2026-03-29T21:36:34Z",
+      "duration_ms": 177563,
+      "cost_usd": 0.54656385,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "d15a478f-ae22-4f93-b322-a55332bdca3d",
+      "agent": "claude",
+      "output_file": "plan_v1.md",
+      "artifact_hash": "sha256:faf1220e33ec25f447c8f6dd980a68c41f1400a995d1e66789c5bc891a1e2cba"
+    },
+    {
+      "step": "critique",
+      "timestamp": "2026-03-29T21:55:29Z",
+      "duration_ms": 243087,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3b94-a2c6-71d1-a75c-6c76a9857355",
+      "agent": "codex",
+      "output_file": "critique_v1.json",
+      "artifact_hash": "sha256:81e5efe81b7318bfc61aac99709e44153ea7601f96e44976118b4159d8dcda02",
+      "flags_count": 4
+    },
+    {
+      "step": "gate",
+      "timestamp": "2026-03-29T21:56:17Z",
+      "duration_ms": 37160,
+      "cost_usd": 0.14405325,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "1fea634e-31d5-46c1-b4f6-1e4938f1d758",
+      "agent": "claude",
+      "output_file": "gate.json",
+      "artifact_hash": "sha256:26fcfc2333472302011c2b46fa17855273e39c3bd165e20a3daa210cba8eb395",
+      "recommendation": "ITERATE"
+    },
+    {
+      "step": "revise",
+      "timestamp": "2026-03-29T21:59:04Z",
+      "duration_ms": 159970,
+      "cost_usd": 0.55373775,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "d15a478f-ae22-4f93-b322-a55332bdca3d",
+      "agent": "claude",
+      "output_file": "plan_v2.md",
+      "artifact_hash": "sha256:c442fd70c156b7bed597731133dd2a40558310015eb2656c5f74600b07ba1ad7",
+      "flags_addressed": [
+        "worker-lifecycle-root-cause-mismatch",
+        "worker-lifecycle-startup-phase-regression",
+        "scaling-health-boundary-idle-timeout",
+        "control-refactor-scope-creep"
+      ]
+    },
+    {
+      "step": "critique",
+      "timestamp": "2026-03-29T22:00:27Z",
+      "duration_ms": 73217,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3b94-a2c6-71d1-a75c-6c76a9857355",
+      "agent": "codex",
+      "output_file": "critique_v2.json",
+      "artifact_hash": "sha256:fcbf5c3a47132629b11353da3fb469c652236b0dd141e27e3bf1367fe00753e1",
+      "flags_count": 2
+    },
+    {
+      "step": "gate",
+      "timestamp": "2026-03-29T22:01:07Z",
+      "duration_ms": 32664,
+      "cost_usd": 0.196484,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "1fea634e-31d5-46c1-b4f6-1e4938f1d758",
+      "agent": "claude",
+      "output_file": "gate.json",
+      "artifact_hash": "sha256:78aa6097bea0eb2f0daa056f9c033ef9d5d6bf6ecd9593429942180070ff4a8b",
+      "recommendation": "PROCEED"
+    },
+    {
+      "step": "finalize",
+      "timestamp": "2026-03-29T22:04:20Z",
+      "duration_ms": 183479,
+      "cost_usd": 0.42752650000000003,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "c549b20c-b819-43a1-9ab3-9ac8a6b575b4",
+      "agent": "claude",
+      "output_file": "finalize.json",
+      "artifact_hash": "sha256:c5416749620bdec473da26f83dd9918b0bf1ee987b804e5a4e8a1a5a0de8be57"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-03-29T22:15:20Z",
+      "duration_ms": 585251,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3ba1-85e7-7642-a6b9-fa9262edbc49",
+      "agent": "codex",
+      "output_file": "execution.json",
+      "artifact_hash": "sha256:674f8de69e4a14b6c6c7203c5c9b1c4093d8b9b25aba22331432e7d43b632b39",
+      "finalize_hash": "sha256:415414c0804691c33dd880acb0a86a58e2ac39c9cb532b3ac57ae6dc1422709e",
+      "approval_mode": "user_approved"
+    },
+    {
+      "step": "review",
+      "timestamp": "2026-03-29T22:17:42Z",
+      "duration_ms": 130446,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3baa-a304-7160-b685-2c1d6e7507fc",
+      "agent": "codex",
+      "output_file": "review.json",
+      "artifact_hash": "sha256:2c77f48b49e85d0dcd83f047d43f2920c49eee1afd7b5a8cb54f431a1ccc2ea2",
+      "finalize_hash": "sha256:a69ee1243be65e2dd93f738b186c4af7e012bf7b069e51241fc6cc680080a8d6"
+    }
+  ],
+  "meta": {
+    "significant_counts": [
+      4,
+      1
+    ],
+    "weighted_scores": [
+      6.75,
+      2.0
+    ],
+    "plan_deltas": [
+      85.03
+    ],
+    "recurring_critiques": [
+      [],
+      []
+    ],
+    "total_cost_usd": 1.868365,
+    "overrides": [],
+    "notes": [],
+    "user_approved_gate": true
+  },
+  "last_gate": {
+    "recommendation": "PROCEED",
+    "rationale": "The plan has dramatically improved: score dropped from 6.75 to 2.0, all 4 original flags resolved, root-cause analysis corrected, scope trimmed, and startup-phase safety preserved. The single remaining flag is a valid architectural observation \u2014 the failsafe still computes `age > cutoff` rather than reading a precomputed verdict \u2014 but this is an acceptable incremental tradeoff, not a planning blocker. The plan already eliminates raw datetime parsing and raw metadata access from the failsafe, routing it through derived state fields (`heartbeat_age_sec`, `effective_age_sec`, `in_startup_phase`). Moving the cutoff comparison itself into `derive_worker_state()` would require the pure function to know about failsafe-specific config thresholds, coupling it to orchestrator config in a way that may not be desirable. The executor can evaluate during implementation whether to add an `is_failsafe_stale` boolean to DerivedWorkerState or keep the comparison in the failsafe \u2014 either way the raw datetime arithmetic and duplicate startup_phase checks are gone, which is the high-value fix.",
+    "signals_assessment": "Iteration 2. Weighted score trajectory 6.75 \u2192 2.0, a strong improvement. Plan delta 85% reflects a substantial rewrite that correctly addressed all 4 prior flags. Zero recurring critiques. 4 flags resolved, 1 new significant flag (failsafe still computes cutoff comparison). No scope creep. Preflight clean. The remaining flag is architectural purity rather than a correctness risk \u2014 the failsafe now reads derived fields instead of raw data, it just does one comparison locally rather than consuming a fully precomputed verdict.",
+    "warnings": [
+      "During execution, verify that the failsafe's cutoff logic using ws.heartbeat_age_sec/ws.effective_age_sec produces identical behavior to the current raw datetime arithmetic \u2014 edge cases around None values and timezone handling.",
+      "The idle-timeout-with-no-work path (lines 564-573) is explicitly preserved but confirm it still works correctly after surrounding dead code is removed \u2014 test that the control flow into it is unchanged."
+    ],
+    "settled_decisions": [
+      {
+        "id": "derive-stays-pure",
+        "decision": "derive_worker_state() remains a pure synchronous function. Async DB queries stay in the health phase.",
+        "rationale": "Settled in iteration 1, uncontested in iteration 2. Changing this would alter the testing story fundamentally."
+      },
+      {
+        "id": "phase2-deferred",
+        "decision": "God-object decomposition (mixin wiring) is out of scope. Phase copies are updated to match but not wired in.",
+        "rationale": "Settled in iteration 1, scope creep flag resolved by dropping Phase 2."
+      },
+      {
+        "id": "reconcile-not-a-health-path",
+        "decision": "_reconcile_orphaned_tasks is not a competing health verdict path and requires no changes.",
+        "rationale": "Root-cause correction confirmed in iteration 2 \u2014 it only handles ERROR/TERMINATED workers."
+      },
+      {
+        "id": "idle-timeout-stays-in-health-phase",
+        "decision": "The idle-timeout-with-no-work path (lines 564-573) stays in the health phase unchanged. It is a scale-down concern using async DB queries, not a derivable verdict.",
+        "rationale": "Correctly identified in iteration 2 after the scaling-health-boundary flag was resolved."
+      },
+      {
+        "id": "in-startup-phase-covers-both-paths",
+        "decision": "The new in_startup_phase field must be set regardless of heartbeat status to protect pre-heartbeat startup workers from failsafe termination.",
+        "rationale": "This is the key safety fix that prevents the startup-phase regression identified in iteration 1."
+      }
+    ],
+    "passed": true,
+    "preflight_results": {
+      "project_dir_exists": true,
+      "project_dir_writable": true,
+      "success_criteria_present": true,
+      "claude_available": true,
+      "codex_available": true
+    },
+    "orchestrator_guidance": "Plan passed gate and preflight. Proceed to finalize. Verify unresolved flags against the plan and project code before accepting."
+  }
+}

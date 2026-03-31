@@ -18,15 +18,27 @@ import logging
 import os
 import socket
 from logging.handlers import RotatingFileHandler
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
+
+from orchestrator_common.logging_helpers import configure_third_party_loggers
+
+if TYPE_CHECKING:
+    from orchestrator_common.database_log_handler import DatabaseLogHandler
 
 try:
     # `python-json-logger` is lightweight and already whitelisted in requirements.
-    from pythonjsonlogger import jsonlogger  # type: ignore
+    from pythonjsonlogger import json as jsonlogger  # type: ignore
 except ImportError:  # pragma: no cover – fallback for runtime without dep
     jsonlogger = None  # type: ignore
 
 _DB_LOG_HANDLER_ATTR = f"_{__name__.replace('.', '_')}_db_log_handler"
+_ORCHESTRATOR_LOGGERS = [
+    "gpu_orchestrator",
+    "gpu_orchestrator.control_loop",
+    "gpu_orchestrator.database",
+    "gpu_orchestrator.runpod_client",
+    "__main__",
+]
 
 
 def _set_db_log_handler(handler: Optional['DatabaseLogHandler']) -> None:
@@ -85,7 +97,7 @@ def setup_logging(db_client=None, source_type: str = "orchestrator_gpu"):
     logging.basicConfig(level=log_level, handlers=handlers, force=True)
     
     # Suppress noisy HTTP request logs to focus on health and process information
-    _configure_third_party_loggers()
+    configure_third_party_loggers(_ORCHESTRATOR_LOGGERS)
     
     # Add database logging handler if enabled and db_client provided
     enable_db_logging = os.getenv("ENABLE_DB_LOGGING", "false").lower() == "true"
@@ -132,37 +144,6 @@ def setup_logging(db_client=None, source_type: str = "orchestrator_gpu"):
             _set_db_log_handler(None)
     
     return _get_db_log_handler()
-
-
-def _configure_third_party_loggers():
-    """Configure third-party library loggers to reduce noise."""
-    
-    # Suppress verbose HTTP request logging from httpx (used by Supabase client)
-    logging.getLogger("httpx").setLevel(logging.WARNING)
-    
-    # Suppress other noisy HTTP libraries
-    logging.getLogger("urllib3").setLevel(logging.WARNING)
-    logging.getLogger("requests").setLevel(logging.WARNING)
-    logging.getLogger("aiohttp").setLevel(logging.WARNING)
-    
-    # Suppress Supabase client verbose logs
-    logging.getLogger("supabase").setLevel(logging.WARNING)
-    logging.getLogger("postgrest").setLevel(logging.WARNING)
-    
-    # Keep our orchestrator logs at the configured level
-    orchestrator_loggers = [
-        "gpu_orchestrator",
-        "gpu_orchestrator.control_loop", 
-        "gpu_orchestrator.database",
-        "gpu_orchestrator.runpod_client",
-        "__main__"
-    ]
-    
-    for logger_name in orchestrator_loggers:
-        logger = logging.getLogger(logger_name)
-        # Don't override if already explicitly set
-        if logger.level == logging.NOTSET:
-            logger.setLevel(logging.INFO)
 
 
 # ---------------------------------------------------------------------------

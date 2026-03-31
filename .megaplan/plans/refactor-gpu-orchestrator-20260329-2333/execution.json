@@ -1,0 +1,166 @@
+{
+  "output": "Aggregated execute batches: completed 4/4.\nBatch 1: Implemented T1 in `gpu_orchestrator/worker_state.py`: added `DerivedWorkerState.in_startup_phase`, computed it from `startup_phase` before `_determine_lifecycle`, and returned it in `derive_worker_state()`. Verified the key safety case with a targeted Python invocation: a worker with `startup_phase='deps_installing'` and no heartbeat produced `in_startup_phase=True` while remaining in the spawning lifecycle.\nBatch 2: Implemented batch 2 in `gpu_orchestrator/control_loop.py`. T2 removes the duplicate stale-heartbeat queued-work termination path and the two unreachable no-heartbeat branches from `_health_check_active_workers`, leaving `ws.should_terminate` as the stale-heartbeat authority and the queued-work path as basic health-check only. T3 rewrites `_failsafe_stale_worker_check` to consume `List[DerivedWorkerState]`, skip terminal/startup/already-terminating workers, compute staleness from derived ages, and fetch raw worker records only inside the termination loop; `_run_periodic_checks` now passes `worker_states` directly.\nBatch 3: Implemented T4 by syncing the stale phase copies to the canonical control-loop behavior. `gpu_orchestrator/control/phases/health.py` now removes the same dead/duplicate health branches as T2, and `gpu_orchestrator/control/phases/periodic.py` now passes `worker_states` directly and uses derived-state failsafe logic matching T3. Both phase files compile cleanly, and targeted source checks confirm the updated methods carry the same branch invariants as the canonical code.\nBatch 4: Implemented T5 by expanding the existing phase test files with four `derive_worker_state` startup-phase tests and one periodic failsafe regression test, plus updating the shared test helper to match the current `DerivedWorkerState` and `OrchestratorConfig` signatures. Full verification passed: `python -m pytest tests/ -v` completed with `74 passed, 0 failed`, and the canonical `_failsafe_stale_worker_check` still contains no raw `metadata.get('startup_phase')` access or raw datetime parsing/arithmetic against worker heartbeat/creation fields.",
+  "files_changed": [
+    "gpu_orchestrator/worker_state.py",
+    "gpu_orchestrator/control_loop.py",
+    "gpu_orchestrator/control/phases/health.py",
+    "gpu_orchestrator/control/phases/periodic.py",
+    "tests/gpu_orchestrator/control/phases/test_state.py",
+    "tests/gpu_orchestrator/control/phases/test_periodic.py",
+    "tests/scaling_decision_helpers.py"
+  ],
+  "commands_run": [
+    "sed -n '1,220p' /Users/peteromalley/.codex/skills/megaplan/SKILL.md",
+    "sed -n '1,220p' gpu_orchestrator/worker_state.py",
+    "sed -n '220,360p' gpu_orchestrator/worker_state.py",
+    "python - <<'PY'\nfrom datetime import datetime, timezone\nfrom types import SimpleNamespace\nfrom gpu_orchestrator.worker_state import derive_worker_state\n\nnow = datetime(2026, 3, 30, tzinfo=timezone.utc)\nworker = {\n    'id': 'w1',\n    'status': 'active',\n    'created_at': '2026-03-30T00:00:00+00:00',\n    'last_heartbeat': None,\n    'metadata': {\n        'startup_phase': 'deps_installing',\n        'startup_script_launched': True,\n    },\n}\nconfig = SimpleNamespace(\n    heartbeat_promotion_threshold_sec=30,\n    gpu_idle_timeout_sec=300,\n    gpu_not_detected_timeout_sec=600,\n    ready_not_claiming_timeout_sec=600,\n    startup_grace_period_sec=600,\n    spawning_timeout_sec=1200,\n)\nstate = derive_worker_state(worker, config, now, has_ever_claimed=False, has_active_task=False, queued_count=0)\nprint({\n    'in_startup_phase': state.in_startup_phase,\n    'has_heartbeat': state.has_heartbeat,\n    'lifecycle': state.lifecycle.value,\n})\nPY",
+    "test -w .megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_1.json && echo writable || echo not_writable",
+    "git diff -- gpu_orchestrator/worker_state.py",
+    "sed -n '460,640p' gpu_orchestrator/control_loop.py",
+    "sed -n '1010,1085p' gpu_orchestrator/control_loop.py",
+    "sed -n '1560,1655p' gpu_orchestrator/control_loop.py",
+    "rg -n \"DerivedWorkerState|_health_check_active_workers|_failsafe_stale_worker_check|_run_periodic_checks|get_worker_by_id|get_all_workers\" gpu_orchestrator/control_loop.py gpu_orchestrator/database.py",
+    "python -m py_compile gpu_orchestrator/control_loop.py",
+    "python - <<'PY'\nfrom pathlib import Path\ntext = Path('gpu_orchestrator/control_loop.py').read_text()\nstart = text.index('    async def _failsafe_stale_worker_check')\nend = text.index('    async def _efficient_zombie_check', start)\nblock = text[start:end]\nforbidden = [\"metadata.get('startup_phase')\", 'datetime.fromisoformat', \"worker['status']\", \"worker.get('last_heartbeat')\"]\nprint({item: (item in block) for item in forbidden})\nPY",
+    "python - <<'PY'\nfrom pathlib import Path\ntext = Path('gpu_orchestrator/control_loop.py').read_text()\nstart = text.index('    async def _health_check_active_workers')\nend = text.index('    async def _check_stuck_tasks', start)\nblock = text[start:end]\nchecks = {\n    'queued_basic_health': \"if task_counts.queued > 0:\\n                        if not await self._perform_basic_health_check(worker):\" in block,\n    'stale_queued_branch_removed': 'Idle with stale heartbeat' not in block,\n    'active_no_heartbeat_removed': 'No heartbeat with active tasks' not in block,\n    'queued_no_heartbeat_removed': 'No heartbeat or activity with tasks queued' not in block,\n}\nprint(checks)\nPY",
+    "git diff -- gpu_orchestrator/control_loop.py",
+    "test -w .megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_2.json && echo writable || echo not_writable",
+    "sed -n '1,240p' gpu_orchestrator/control/phases/health.py",
+    "sed -n '1,260p' gpu_orchestrator/control/phases/periodic.py",
+    "rg -n \"_health_check_active_workers|_run_periodic_checks|_failsafe_stale_worker_check|DerivedWorkerState|datetime.fromisoformat|startup_phase\" gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py",
+    "python -m py_compile gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py",
+    "python - <<'PY'\nfrom pathlib import Path\nhealth = Path('gpu_orchestrator/control/phases/health.py').read_text()\nperiodic = Path('gpu_orchestrator/control/phases/periodic.py').read_text()\nchecks = {\n    'health_queued_basic_health': 'if task_counts.queued > 0:\\n            if not await self._perform_basic_health_check(worker):' in health,\n    'health_removed_stale_queued': 'Idle with stale heartbeat' not in health,\n    'health_removed_active_no_heartbeat': 'No heartbeat with active tasks' not in health,\n    'health_removed_queued_no_heartbeat': 'No heartbeat or activity with tasks queued' not in health,\n    'periodic_passes_worker_states': 'await self._failsafe_stale_worker_check(worker_states, periodic_summary)' in periodic,\n    'periodic_uses_in_startup_phase': 'if ws.in_startup_phase:' in periodic,\n    'periodic_uses_should_terminate': 'if ws.should_terminate:' in periodic,\n    'periodic_uses_derived_age': 'age = ws.heartbeat_age_sec if ws.has_heartbeat else ws.effective_age_sec' in periodic,\n    'periodic_uses_db_status': 'FAILSAFE: Stale heartbeat with status {ws.db_status}' in periodic,\n}\nprint(checks)\nPY",
+    "python - <<'PY'\nfrom pathlib import Path\ntext = Path('gpu_orchestrator/control/phases/periodic.py').read_text()\nstart = text.index('    async def _failsafe_stale_worker_check')\nend = text.index('    async def _efficient_zombie_check', start)\nblock = text[start:end]\nforbidden = [\"metadata.get('startup_phase')\", 'datetime.fromisoformat', \"worker['status']\", \"worker.get('last_heartbeat')\"]\nprint({item: (item in block) for item in forbidden})\nPY",
+    "git status --short -- gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py",
+    "test -w .megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_3.json && echo writable || echo not_writable",
+    "sed -n '1,260p' tests/gpu_orchestrator/control/phases/test_state.py",
+    "sed -n '1,260p' tests/gpu_orchestrator/control/phases/test_periodic.py",
+    "sed -n '1,180p' tests/scaling_decision_helpers.py",
+    "python -m pytest tests/ -v",
+    "python - <<'PY'\nfrom pathlib import Path\ntext = Path('gpu_orchestrator/control_loop.py').read_text()\nstart = text.index('    async def _failsafe_stale_worker_check')\nend = text.index('    async def _efficient_zombie_check', start)\nblock = text[start:end]\nchecks = {\n    \"metadata.get('startup_phase')\": \"metadata.get('startup_phase')\" in block,\n    'datetime.fromisoformat': 'datetime.fromisoformat' in block,\n    \"worker.get('last_heartbeat')\": \"worker.get('last_heartbeat')\" in block,\n    \"worker['created_at']\": \"worker['created_at']\" in block,\n}\nprint(checks)\nPY",
+    "git status --short -- tests/scaling_decision_helpers.py tests/gpu_orchestrator/control/phases/test_state.py tests/gpu_orchestrator/control/phases/test_periodic.py gpu_orchestrator/worker_state.py gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py",
+    "test -w .megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_4.json && echo writable || echo not_writable"
+  ],
+  "deviations": [
+    "Best-effort checkpointing to `.megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_1.json` was skipped because the target file was not writable.",
+    "Advisory quality: gpu_orchestrator/worker_state.py adds unused imports: OrchestratorConfig.",
+    "Advisory quality: code changes lacked test updates: gpu_orchestrator/worker_state.py.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: gpu_orchestrator/control_loop.py, tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/runpod, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator, tests/orchestrator_common, tests/scaling_decision_helpers.py, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py, tests/test_scaling_decision_limits.py, tests/test_scaling_decision_spawn.py",
+    "Advisory audit finding: Sense check SC2 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC3 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC4 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC5 is missing an executor acknowledgment.",
+    "Best-effort checkpointing to `.megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_2.json` was skipped because the target file was not writable.",
+    "Advisory quality: code changes lacked test updates: gpu_orchestrator/control_loop.py.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/runpod, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator, tests/orchestrator_common, tests/scaling_decision_helpers.py, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py, tests/test_scaling_decision_limits.py, tests/test_scaling_decision_spawn.py",
+    "Advisory audit finding: Sense check SC4 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC5 is missing an executor acknowledgment.",
+    "Best-effort checkpointing to `.megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_3.json` was skipped because the target file was not writable.",
+    "Advisory quality: gpu_orchestrator/control/phases/health.py adds unused imports: ControlHost.",
+    "Advisory quality: gpu_orchestrator/control/phases/periodic.py adds unused imports: ControlHost.",
+    "Advisory quality: code changes lacked test updates: gpu_orchestrator/control/phases/health.py, gpu_orchestrator/control/phases/periodic.py.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/runpod, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator, tests/orchestrator_common, tests/scaling_decision_helpers.py, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py, tests/test_scaling_decision_limits.py, tests/test_scaling_decision_spawn.py",
+    "Advisory audit finding: Sense check SC5 is missing an executor acknowledgment.",
+    "Best-effort checkpointing to `.megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_4.json` was skipped because the target file was not writable.",
+    "Advisory observation mismatch: executor claimed files not observed in git status/content hash delta: tests/gpu_orchestrator/control/phases/test_periodic.py, tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Executor claimed changed files not present in git status: tests/gpu_orchestrator/control/phases/test_periodic.py, tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/runpod, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator, tests/orchestrator_common, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py, tests/test_scaling_decision_limits.py, tests/test_scaling_decision_spawn.py",
+    "Advisory audit finding: Executor claimed changed files not present in git status: tests/gpu_orchestrator/control/phases/test_periodic.py, tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/runpod, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator, tests/orchestrator_common, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py, tests/test_scaling_decision_limits.py, tests/test_scaling_decision_spawn.py"
+  ],
+  "task_updates": [
+    {
+      "task_id": "T1",
+      "status": "done",
+      "executor_notes": "Added `in_startup_phase: bool` after `ready_for_tasks`, extracted `startup_phase` once, computed `in_startup_phase = startup_phase in ('deps_installing', 'deps_verified', 'worker_starting')` before `_determine_lifecycle`, and returned it in `DerivedWorkerState`. Verified the safety-critical pre-heartbeat case with a targeted `derive_worker_state()` call: `startup_phase='deps_installing'`, `last_heartbeat=None` yielded `in_startup_phase=True` and spawning lifecycle.",
+      "files_changed": [
+        "gpu_orchestrator/worker_state.py"
+      ],
+      "commands_run": [
+        "python - <<'PY' ... derive_worker_state(...) ... PY",
+        "git diff -- gpu_orchestrator/worker_state.py"
+      ]
+    },
+    {
+      "task_id": "T2",
+      "status": "done",
+      "executor_notes": "Removed the duplicate stale-heartbeat queued-task termination branch and both unreachable no-heartbeat branches from `_health_check_active_workers`. Verification on the method body confirms the queued-task path now only performs `_perform_basic_health_check(worker)`, and the removed strings `Idle with stale heartbeat`, `No heartbeat with active tasks`, and `No heartbeat or activity with tasks queued` are absent. `python -m py_compile gpu_orchestrator/control_loop.py` passed.",
+      "files_changed": [
+        "gpu_orchestrator/control_loop.py"
+      ],
+      "commands_run": [
+        "python -m py_compile gpu_orchestrator/control_loop.py",
+        "python - <<'PY' ... queued_basic_health / removed-branch verification ... PY",
+        "git diff -- gpu_orchestrator/control_loop.py"
+      ]
+    },
+    {
+      "task_id": "T3",
+      "status": "done",
+      "executor_notes": "Rewrote `_failsafe_stale_worker_check` to accept `List[DerivedWorkerState]`, skip `ws.is_terminal`, `ws.in_startup_phase`, and `ws.should_terminate`, compute staleness from `ws.heartbeat_age_sec` or `ws.effective_age_sec`, and use `ws.worker_id`/`ws.runpod_id` in the termination loop with raw worker fetches only inside that loop. `_run_periodic_checks` now passes `worker_states` directly. Verification confirms the failsafe block contains zero instances of `metadata.get('startup_phase')`, `datetime.fromisoformat`, `worker['status']`, and `worker.get('last_heartbeat')`; `python -m py_compile gpu_orchestrator/control_loop.py` passed.",
+      "files_changed": [
+        "gpu_orchestrator/control_loop.py"
+      ],
+      "commands_run": [
+        "python -m py_compile gpu_orchestrator/control_loop.py",
+        "python - <<'PY' ... forbidden-pattern verification for failsafe block ... PY",
+        "git diff -- gpu_orchestrator/control_loop.py"
+      ]
+    },
+    {
+      "task_id": "T4",
+      "status": "done",
+      "executor_notes": "Updated `gpu_orchestrator/control/phases/health.py` to remove the same duplicate stale-heartbeat queued-task branch and unreachable no-heartbeat branches removed from the canonical `_health_check_active_workers`. Updated `gpu_orchestrator/control/phases/periodic.py` so `_run_periodic_checks` passes `worker_states` directly and `_failsafe_stale_worker_check` accepts `List[DerivedWorkerState]`, skips `ws.is_terminal` / `ws.in_startup_phase` / `ws.should_terminate`, derives age from `ws.heartbeat_age_sec` or `ws.effective_age_sec`, and uses `ws.db_status`/`ws.runpod_id` in termination handling. Verification: `python -m py_compile gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py` passed; targeted source checks confirmed the removed health-branch strings are absent and the periodic mixin contains the same derived-state failsafe markers as the canonical control loop. Both files currently appear as untracked in `git status`, so verification relied on direct source inspection rather than `git diff`.",
+      "files_changed": [
+        "gpu_orchestrator/control/phases/health.py",
+        "gpu_orchestrator/control/phases/periodic.py"
+      ],
+      "commands_run": [
+        "python -m py_compile gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py",
+        "python - <<'PY' ... phase-copy invariant checks ... PY",
+        "python - <<'PY' ... periodic failsafe forbidden-pattern checks ... PY",
+        "git status --short -- gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py"
+      ]
+    },
+    {
+      "task_id": "T5",
+      "status": "done",
+      "executor_notes": "Added four startup-phase tests in `tests/gpu_orchestrator/control/phases/test_state.py` covering the with-heartbeat, without-heartbeat, no-startup-phase, and post-startup (`running`) cases, and added `test_failsafe_skips_startup_phase_workers` in `tests/gpu_orchestrator/control/phases/test_periodic.py`. Updated `tests/scaling_decision_helpers.py` for the current dataclass/config signatures by adding the new `in_startup_phase` field to `make_worker_state()` and removing the stale `max_task_wait_minutes` config input that caused the first pytest run to fail. Verification: after that helper fix, `python -m pytest tests/ -v` passed with `74 passed, 0 failed`; the canonical `_failsafe_stale_worker_check` block also verified clean for `metadata.get('startup_phase')`, `datetime.fromisoformat`, `worker.get('last_heartbeat')`, and `worker['created_at']` (all absent).",
+      "files_changed": [
+        "tests/gpu_orchestrator/control/phases/test_state.py",
+        "tests/gpu_orchestrator/control/phases/test_periodic.py",
+        "tests/scaling_decision_helpers.py"
+      ],
+      "commands_run": [
+        "python -m pytest tests/ -v",
+        "python - <<'PY' ... failsafe forbidden-pattern verification ... PY",
+        "git status --short -- tests/scaling_decision_helpers.py tests/gpu_orchestrator/control/phases/test_state.py tests/gpu_orchestrator/control/phases/test_periodic.py gpu_orchestrator/worker_state.py gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/periodic.py"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC1",
+      "executor_note": "Yes. Verified directly: a worker with `startup_phase='deps_installing'` and no heartbeat produced `in_startup_phase=True` while in `spawning_script_running`, confirming the flag is set independently of heartbeat presence."
+    },
+    {
+      "sense_check_id": "SC2",
+      "executor_note": "Yes. In `_health_check_active_workers`, the stale-heartbeat queued-task termination path was removed, so `ws.should_terminate` is now the only stale-heartbeat kill path for queued work. The remaining `if task_counts.queued > 0:` branch only calls `_perform_basic_health_check(worker)`."
+    },
+    {
+      "sense_check_id": "SC3",
+      "executor_note": "Yes. Verified on the `_failsafe_stale_worker_check` method body: it contains zero instances of `metadata.get('startup_phase')`, `datetime.fromisoformat`, `worker['status']`, and `worker.get('last_heartbeat')`; all four checks returned `False`."
+    },
+    {
+      "sense_check_id": "SC4",
+      "executor_note": "Yes. The phase copies now match the canonical T2/T3 logic at the key-method level: `health.py` only keeps the queued-task basic health-check path and removes the stale/no-heartbeat branches, while `periodic.py` passes `worker_states` directly and its failsafe uses `ws.in_startup_phase`, `ws.should_terminate`, and derived age fields with no raw startup-phase or datetime parsing. Verified with targeted source checks plus successful `py_compile` on both phase files."
+    },
+    {
+      "sense_check_id": "SC5",
+      "executor_note": "Yes. The new tests cover both startup-phase cases with heartbeat and without heartbeat, plus the false cases for missing/past-startup values, and the periodic regression verifies startup-phase workers are skipped by the failsafe. `python -m pytest tests/ -v` completed with `74 passed, 0 failed`."
+    }
+  ]
+}

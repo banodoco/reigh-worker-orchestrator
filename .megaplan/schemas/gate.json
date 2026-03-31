@@ -1,0 +1,80 @@
+{
+  "type": "object",
+  "properties": {
+    "recommendation": {
+      "type": "string",
+      "enum": [
+        "PROCEED",
+        "ITERATE",
+        "ESCALATE"
+      ]
+    },
+    "rationale": {
+      "type": "string"
+    },
+    "signals_assessment": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "settled_decisions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "decision"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "accepted_tradeoffs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "flag_id": {
+            "type": "string"
+          },
+          "concern": {
+            "type": "string"
+          },
+          "subsystem": {
+            "type": "string"
+          },
+          "rationale": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "flag_id",
+          "concern"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "recommendation",
+    "rationale",
+    "signals_assessment",
+    "warnings",
+    "settled_decisions"
+  ],
+  "additionalProperties": false
+}

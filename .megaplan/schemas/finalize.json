@@ -1,0 +1,116 @@
+{
+  "type": "object",
+  "properties": {
+    "tasks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "depends_on": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "done",
+              "skipped"
+            ]
+          },
+          "executor_notes": {
+            "type": "string"
+          },
+          "files_changed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "commands_run": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "evidence_files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "reviewer_verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "description",
+          "depends_on",
+          "status",
+          "executor_notes",
+          "files_changed",
+          "commands_run",
+          "evidence_files",
+          "reviewer_verdict"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "watch_items": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sense_checks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "question": {
+            "type": "string"
+          },
+          "executor_note": {
+            "type": "string"
+          },
+          "verdict": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "task_id",
+          "question",
+          "executor_note",
+          "verdict"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "meta_commentary": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "tasks",
+    "watch_items",
+    "sense_checks",
+    "meta_commentary"
+  ],
+  "additionalProperties": false
+}

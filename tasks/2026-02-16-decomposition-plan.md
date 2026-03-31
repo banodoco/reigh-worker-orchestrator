@@ -129,3 +129,121 @@ Decompose in this order:
 - Batch C (cleanup): Workstream 6
 
 Run `desloppify scan --path .` after each batch and record score deltas in this file.
+
+## Execution Log
+
+### 2026-02-16 - Workstream 1 (RunPod package extraction)
+
+Completed:
+
+- extracted `gpu_orchestrator/runpod_client.py` into a decomposed package:
+  - `gpu_orchestrator/runpod/api.py`
+  - `gpu_orchestrator/runpod/ssh.py`
+  - `gpu_orchestrator/runpod/storage.py`
+  - `gpu_orchestrator/runpod/lifecycle.py`
+  - `gpu_orchestrator/runpod/startup_script.py`
+  - `gpu_orchestrator/runpod/worker_startup.template.sh`
+  - `gpu_orchestrator/runpod/client.py`
+- converted `gpu_orchestrator/runpod_client.py` into a backward-compatible facade export module.
+- added focused tests in `tests/test_runpod_decomposition.py`.
+
+Score deltas:
+
+- baseline before extraction (previous scan): strict `96.8/100`
+- after extraction and initial scan: strict `94.3/100`
+- after targeted runpod tests: strict `94.8/100`
+- after module-mapped direct coverage tests: strict `94.5/100`
+
+Current Workstream 1 status:
+
+- structural risk in legacy `gpu_orchestrator/runpod_client.py` is removed (facade now small/stable).
+- follow-up hardening still needed to recover score regression from new-module smell/review findings.
+
+### 2026-02-16 - Workstream 2 (Control loop decomposition)
+
+Completed:
+
+- decomposed `gpu_orchestrator/control_loop.py` into a coordinator + control package:
+  - `gpu_orchestrator/control/decision_io.py`
+  - `gpu_orchestrator/control/diagnostics.py`
+  - `gpu_orchestrator/control/phases/state.py`
+  - `gpu_orchestrator/control/phases/lifecycle.py`
+  - `gpu_orchestrator/control/phases/health.py`
+  - `gpu_orchestrator/control/phases/scaling_decision.py`
+  - `gpu_orchestrator/control/phases/worker_capacity.py`
+  - `gpu_orchestrator/control/phases/periodic.py`
+- reduced `gpu_orchestrator/control_loop.py` to orchestration coordinator responsibilities.
+- added direct module-mapped tests for control and runpod decomposition coverage:
+  - `tests/gpu_orchestrator/control/*`
+  - `tests/test_direct_control_health.py`
+  - `tests/test_direct_runpod_storage.py`
+  - `tests/test_direct_runpod_lifecycle.py`
+
+Score deltas:
+
+- before Workstream 2 start: strict `92.9/100`
+- after first pass extraction: strict `92.5/100`
+- after second-pass split and direct coverage tests: strict `95.2/100`
+- after review-resolution pass: strict `95.3/100`
+
+Current Workstream 2 status:
+
+- control loop is structurally decomposed with phase boundaries and diagnostics/decision I/O separated.
+- remaining control debt is now concentrated in smaller modules (`single_use`, `smells`) rather than a monolithic coordinator.
+
+### 2026-02-16 - Workstreams 3/4/5/6 continuation (score recovery + debug decomposition)
+
+Completed:
+
+- workstream 3 hardening:
+  - resolved `dict_keys` drift/phantom reads in `api_orchestrator/handlers/wavespeed.py`.
+  - normalized task reset payload construction in `gpu_orchestrator/database.py` to remove schema-drift key warning.
+  - added direct handler coverage tests in `tests/api_orchestrator/test_handlers_direct.py`.
+- workstream 4 decomposition:
+  - split debug formatting layer into presenter modules:
+    - `scripts/debug/presenters/task_presenter.py`
+    - `scripts/debug/presenters/worker_presenter.py`
+    - `scripts/debug/presenters/summary_presenter.py`
+    - `scripts/debug/presenters/system_presenter.py`
+  - kept `scripts/debug/formatters.py` as stable facade API.
+  - split `scripts/debug/client.py` into service-backed flows:
+    - `scripts/debug/services/tasks.py`
+    - `scripts/debug/services/workers.py`
+    - `scripts/debug/services/system.py`
+  - decomposed high-complexity debug command modules into helper-oriented structure:
+    - `scripts/debug/commands/config.py`
+    - `scripts/debug/commands/infra.py`
+    - `scripts/debug/commands/runpod.py`
+    - `scripts/debug/commands/storage.py`
+    - `scripts/debug/commands/worker.py`
+- workstream 5 dedup/facade cleanup:
+  - converted compatibility wrappers to thin compatibility subclasses:
+    - `api_orchestrator/database_log_handler.py`
+    - `gpu_orchestrator/database_log_handler.py`
+  - removed barrel re-export facades from:
+    - `api_orchestrator/handlers/__init__.py`
+    - `orchestrator_common/__init__.py`
+  - switched `api_orchestrator/task_handlers.py` to direct module imports (no barrel dependency).
+- workstream 6 targeted decomposition:
+  - split `tests/test_scaling_decision.py` into:
+    - `tests/scaling_decision_helpers.py`
+    - `tests/test_scaling_decision_spawn.py`
+    - `tests/test_scaling_decision_limits.py`
+
+Test/verification:
+
+- `ruff check` clean on all changed modules.
+- full test suite passing: `71 passed, 1 warning`.
+- `desloppify scan --path .` repeated after each batch.
+
+Score deltas (strict):
+
+- baseline at start of this continuation: `93.5/100`
+- after dict-key + direct-coverage fixes: `96.3/100`
+- after debug command/client/presenter decomposition and cleanup passes: `96.7/100`
+
+Current status snapshot:
+
+- `dict_keys`, `test_coverage`, `single_use`, and `facade` are now fully clean.
+- open `structural` findings reduced to `18` (from `26` at start of this continuation).
+- remaining structural debt is concentrated in large production modules (`fal_utils`, `worker_state`, `storage_utils`, `database`, runpod internals) and a few large operational scripts.

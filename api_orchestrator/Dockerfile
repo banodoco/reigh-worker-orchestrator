@@ -14,15 +14,14 @@ RUN apt-get update && apt-get install -y \
 # Create app directory
 WORKDIR /app
 
-# Install common Python packages that are likely needed
-# Install dependencies from local requirements
-COPY requirements.txt /tmp/requirements.txt
+# Install dependencies (path relative to project root build context)
+COPY api_orchestrator/requirements.txt /tmp/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Copy the current directory (api_orchestrator)
-# Copy package
-COPY . /app/api_orchestrator/
+# Copy application packages
+COPY api_orchestrator/ /app/api_orchestrator/
+COPY orchestrator_common/ /app/orchestrator_common/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 apiworker && chown -R apiworker:apiworker /app

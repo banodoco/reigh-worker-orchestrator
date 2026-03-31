@@ -1,0 +1,327 @@
+{
+  "name": "fix-gpu-orchestrator-scaling-20260330-1936",
+  "idea": "Fix GPU orchestrator scaling logic that kills idle workers prematurely, then refactor scaling/termination code for clarity and robustness. Root cause: desired_floor = max(min_active_gpus, busy_count + machines_to_keep_idle) with MACHINES_TO_KEEP_IDLE=0 means busy workers count as 'covering' capacity, so idle workers get terminated after 30s even when they're the only ones available to claim new tasks. This creates a vicious cycle: kill warm worker -> new task arrives -> can't spawn replacement (RunPod unavailable) -> spawn failures trip circuit breaker -> all spawning blocked. Key files: worker_state.py, control/phases/health.py, control/phases/lifecycle.py, control/phases/scaling_decision.py, control/phases/worker_capacity.py, control/phases/periodic.py, control_loop.py, config.py. Also address: overlapping termination paths, failure rate circuit breaker conflating spawn failures with worker crashes, legacy code in control_loop.py alongside refactored phases, non-obvious config interactions, and complex timeout logic in derive_worker_state().",
+  "current_state": "done",
+  "iteration": 2,
+  "created_at": "2026-03-30T17:36:44Z",
+  "config": {
+    "project_dir": "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator",
+    "auto_approve": false,
+    "robustness": "standard",
+    "agent": ""
+  },
+  "sessions": {
+    "claude_planner": {
+      "id": "787bdfb8-0127-4d7d-8a1e-3cd029785aca",
+      "mode": "persistent",
+      "created_at": "2026-03-30T17:50:23Z",
+      "last_used_at": "2026-03-30T17:56:54Z",
+      "refreshed": false
+    },
+    "codex_critic": {
+      "id": "019d3fde-7cd5-7eb1-b359-002ad1630256",
+      "mode": "persistent",
+      "created_at": "2026-03-30T17:53:44Z",
+      "last_used_at": "2026-03-30T17:58:07Z",
+      "refreshed": false
+    },
+    "claude_gatekeeper": {
+      "id": "d653ddea-78e6-4a27-807e-37bcca8360cf",
+      "mode": "persistent",
+      "created_at": "2026-03-30T17:54:36Z",
+      "last_used_at": "2026-03-30T17:58:57Z",
+      "refreshed": false
+    },
+    "claude_finalizer": {
+      "id": "9994d212-9885-4034-94dd-1eae172888c0",
+      "mode": "persistent",
+      "created_at": "2026-03-30T18:01:34Z",
+      "last_used_at": "2026-03-30T18:01:34Z",
+      "refreshed": false
+    },
+    "codex_executor": {
+      "id": "019d3fe9-3019-7aa0-aecf-346a2929ce19",
+      "mode": "persistent",
+      "created_at": "2026-03-30T18:06:21Z",
+      "last_used_at": "2026-03-30T18:20:35Z",
+      "refreshed": true
+    },
+    "codex_reviewer": {
+      "id": "019d3ff1-81ac-7462-aa7a-494d798e6e6a",
+      "mode": "persistent",
+      "created_at": "2026-03-30T18:15:17Z",
+      "last_used_at": "2026-03-30T18:22:51Z",
+      "refreshed": false
+    }
+  },
+  "plan_versions": [
+    {
+      "version": 1,
+      "file": "plan_v1.md",
+      "hash": "sha256:874dcbe7be5e764ff98f2800f3863e3c7227346b9dd739ae1ff71ceac907ad83",
+      "timestamp": "2026-03-30T17:50:23Z"
+    },
+    {
+      "version": 2,
+      "file": "plan_v2.md",
+      "hash": "sha256:795cc60785d3cf12ceb1c54509a15ca269aad85e842b04cab458011501ad8d52",
+      "timestamp": "2026-03-30T17:56:54Z"
+    }
+  ],
+  "history": [
+    {
+      "step": "init",
+      "timestamp": "2026-03-30T17:36:44Z",
+      "duration_ms": 0,
+      "cost_usd": 0.0,
+      "result": "success",
+      "environment": {
+        "claude": true,
+        "codex": true
+      }
+    },
+    {
+      "step": "plan",
+      "timestamp": "2026-03-30T17:50:23Z",
+      "duration_ms": 178831,
+      "cost_usd": 0.5359461000000001,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "787bdfb8-0127-4d7d-8a1e-3cd029785aca",
+      "agent": "claude",
+      "output_file": "plan_v1.md",
+      "artifact_hash": "sha256:874dcbe7be5e764ff98f2800f3863e3c7227346b9dd739ae1ff71ceac907ad83"
+    },
+    {
+      "step": "critique",
+      "timestamp": "2026-03-30T17:53:44Z",
+      "duration_ms": 189350,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3fde-7cd5-7eb1-b359-002ad1630256",
+      "agent": "codex",
+      "output_file": "critique_v1.json",
+      "artifact_hash": "sha256:ec9a88712873e7c0200ea886327d8f46c2364dd0ceb12e77f2b9d7cde430e3c4",
+      "flags_count": 4
+    },
+    {
+      "step": "gate",
+      "timestamp": "2026-03-30T17:54:36Z",
+      "duration_ms": 45975,
+      "cost_usd": 0.15298899999999999,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "d653ddea-78e6-4a27-807e-37bcca8360cf",
+      "agent": "claude",
+      "output_file": "gate.json",
+      "artifact_hash": "sha256:0dea2d5c88ffdf64ed2205f1b63f646c758923109bd8826de7410035277494a3",
+      "recommendation": "ITERATE"
+    },
+    {
+      "step": "revise",
+      "timestamp": "2026-03-30T17:56:54Z",
+      "duration_ms": 126617,
+      "cost_usd": 0.5359015,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "787bdfb8-0127-4d7d-8a1e-3cd029785aca",
+      "agent": "claude",
+      "output_file": "plan_v2.md",
+      "artifact_hash": "sha256:795cc60785d3cf12ceb1c54509a15ca269aad85e842b04cab458011501ad8d52",
+      "flags_addressed": [
+        "FLAG-001",
+        "FLAG-002",
+        "FLAG-003",
+        "FLAG-004"
+      ]
+    },
+    {
+      "step": "critique",
+      "timestamp": "2026-03-30T17:58:07Z",
+      "duration_ms": 67012,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3fde-7cd5-7eb1-b359-002ad1630256",
+      "agent": "codex",
+      "output_file": "critique_v2.json",
+      "artifact_hash": "sha256:b508371cde9b6f1e0a8848d2f98b68c51829e30230d242cfcb15b36b7c265d1a",
+      "flags_count": 1
+    },
+    {
+      "step": "gate",
+      "timestamp": "2026-03-30T17:58:57Z",
+      "duration_ms": 43697,
+      "cost_usd": 0.21025224999999997,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "d653ddea-78e6-4a27-807e-37bcca8360cf",
+      "agent": "claude",
+      "output_file": "gate.json",
+      "artifact_hash": "sha256:5cf60dba817e6ed464a13671d5aea479c14251d252fd01e170235c376e20cc75",
+      "recommendation": "PROCEED"
+    },
+    {
+      "step": "finalize",
+      "timestamp": "2026-03-30T18:01:34Z",
+      "duration_ms": 150229,
+      "cost_usd": 0.49680245,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "9994d212-9885-4034-94dd-1eae172888c0",
+      "agent": "claude",
+      "output_file": "finalize.json",
+      "artifact_hash": "sha256:1f7c67034a977d2d4f04dfc384997954739a072478794b8b51a09ad89227d8f9"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-03-30T18:06:21Z",
+      "duration_ms": 241627,
+      "cost_usd": 0.0,
+      "result": "partial",
+      "session_mode": "persistent",
+      "session_id": "019d3fe9-3019-7aa0-aecf-346a2929ce19",
+      "agent": "codex",
+      "output_file": "execution_batch_1.json",
+      "artifact_hash": "sha256:eddfec8fe97e99da15357c68fc9813044a6b131e1fbebe295c01d7461c6517ae",
+      "finalize_hash": "sha256:7116df906b873e74928414fe1b07d4ceb70856aaf98b4c722f5ace8b39ae562a",
+      "approval_mode": "user_approved"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-03-30T18:09:45Z",
+      "duration_ms": 196667,
+      "cost_usd": 0.0,
+      "result": "partial",
+      "session_mode": "persistent",
+      "session_id": "019d3fe9-3019-7aa0-aecf-346a2929ce19",
+      "agent": "codex",
+      "output_file": "execution_batch_2.json",
+      "artifact_hash": "sha256:44c1ede4766ecfae4e9be9496c2b189e2c60fed39dd78a2303305f3de1a30a7d",
+      "finalize_hash": "sha256:f7da73117db06983b7f14e14e00eddb0280834db022d3de60a1cfb8d09cb203b",
+      "approval_mode": "user_approved"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-03-30T18:11:19Z",
+      "duration_ms": 87517,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3fe9-3019-7aa0-aecf-346a2929ce19",
+      "agent": "codex",
+      "output_file": "execution_batch_3.json",
+      "artifact_hash": "sha256:259d6a4983394a3f5d1bd57165e83424099f25f0053d72130199b0c9609f7eaf",
+      "finalize_hash": "sha256:21b78ae4cd9727d4b3a5a27f5e4d5fd78c054f64c265515e76d71f871e3aab76",
+      "approval_mode": "user_approved"
+    },
+    {
+      "step": "review",
+      "timestamp": "2026-03-30T18:15:17Z",
+      "duration_ms": 232093,
+      "cost_usd": 0.0,
+      "result": "needs_rework",
+      "session_mode": "persistent",
+      "session_id": "019d3ff1-81ac-7462-aa7a-494d798e6e6a",
+      "agent": "codex",
+      "output_file": "review.json",
+      "artifact_hash": "sha256:51a7d40748155f5adeeb877c9332a8ec0452019152330c50b21d7b534b84e584",
+      "finalize_hash": "sha256:c56ae596963c4ca30df1337e524cecdf437df7edcb4e443017837a12026be370"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-03-30T18:20:35Z",
+      "duration_ms": 234729,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3fe9-3019-7aa0-aecf-346a2929ce19",
+      "agent": "codex",
+      "output_file": "execution_batch_3.json",
+      "artifact_hash": "sha256:01940b462674b1a0ccaad3242b46ed3eb81f8270961a25c5a49ce8bbba7c19a2",
+      "finalize_hash": "sha256:050b126bca0f21d48676a140366030b695fdd90b4441d067652163eecb4b53fd",
+      "approval_mode": "user_approved"
+    },
+    {
+      "step": "review",
+      "timestamp": "2026-03-30T18:22:51Z",
+      "duration_ms": 131417,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019d3ff1-81ac-7462-aa7a-494d798e6e6a",
+      "agent": "codex",
+      "output_file": "review.json",
+      "artifact_hash": "sha256:067a243e5ce1122bf6333ff11ae161a4290607b3d3eab89208fb41ea56b3e99b",
+      "finalize_hash": "sha256:ae4a9b1422d7d08fa43ca56e46e2397aa924a3c021d801065307cccef92187bc"
+    }
+  ],
+  "meta": {
+    "significant_counts": [
+      4,
+      1
+    ],
+    "weighted_scores": [
+      6.25,
+      0.75
+    ],
+    "plan_deltas": [
+      86.77
+    ],
+    "recurring_critiques": [
+      [],
+      []
+    ],
+    "total_cost_usd": 1.93189,
+    "overrides": [],
+    "notes": [],
+    "user_approved_gate": true
+  },
+  "last_gate": {
+    "recommendation": "PROCEED",
+    "rationale": "The plan resolved all three correctness flags (FLAG-001, FLAG-002, FLAG-004) and the remaining FLAG-003 is a maintainability concern about two additional duplicated paths (legacy scaling in `scaling_decision.py:70` and failsafe in `periodic.py:175-229`). This is not a correctness issue \u2014 the legacy scaling path is behind `use_new_scaling_logic=False` (not the active path), and the failsafe in `periodic.py` mirrors `control_loop.py` which Step 9 already addresses. The executor can apply the same fixes to these two files as a mechanical extension of the existing steps without needing a plan revision. The weighted score dropped from 6.25 to 0.75, three of four flags were resolved, and the remaining gap is bounded and low-risk.",
+    "signals_assessment": "Weighted score trajectory 6.25 \u2192 0.75 shows strong convergence. Plan delta was 86.8% (substantial revision that addressed all four original flags). No recurring critiques. The single remaining flag (FLAG-003, maintainability) identifies two additional duplicated files but is not a correctness blocker \u2014 the legacy scaling path is inactive by default and the failsafe mixin mirrors the control_loop.py method that Step 9 already fixes. Preflight is clean. No escalated debt subsystems overlap.",
+    "warnings": [
+      "Scope creep detected: the plan appears to be expanding beyond the original idea or recorded user notes.",
+      "During execution, also apply the `max(machines_to_keep_idle, 1)` fix to `scaling_decision.py:70` (legacy mixin) and the failsafe guard to `periodic.py:175-229` \u2014 these are the two locations FLAG-003 identified as out of scope.",
+      "Scope creep warning was raised by the critique system \u2014 the executor should stick to the plan steps and not expand into broader refactoring of the phase mixin architecture."
+    ],
+    "settled_decisions": [
+      {
+        "id": "DECISION-001",
+        "decision": "Use `max(machines_to_keep_idle, 1)` as the buffer floor in code, not a config change.",
+        "rationale": "Code-level enforcement is more robust than config \u2014 prevents zero-buffer regardless of operator settings. Settled in v1 review."
+      },
+      {
+        "id": "DECISION-002",
+        "decision": "Remove idle-timeout termination from health check (PATH A); scaling execution (PATH B) is sole owner of idle worker termination.",
+        "rationale": "Cleanly separates health monitoring from capacity management and eliminates error-status poisoning. Settled in v1 review."
+      },
+      {
+        "id": "DECISION-003",
+        "decision": "Do not remove legacy scaling path in this PR \u2014 flag for follow-up only.",
+        "rationale": "Mixing behavior fix with legacy removal increases risk. Settled in v1 review."
+      },
+      {
+        "id": "DECISION-004",
+        "decision": "Spawn failures use `terminated` status with `spawn_failed` reason instead of `error` status.",
+        "rationale": "Spawn failures are infrastructure issues, not worker defects. Using `terminated` prevents circuit breaker poisoning while preserving observability via the reason field."
+      },
+      {
+        "id": "DECISION-005",
+        "decision": "Circuit breaker test lives in `tests/test_circuit_breaker.py` testing `_check_worker_failure_rate()` directly, not in the pure scaling function tests.",
+        "rationale": "The pure function takes `failure_rate_ok` as input and cannot exercise the breaker logic. Testing at the correct layer validates the actual success criterion."
+      }
+    ],
+    "passed": true,
+    "preflight_results": {
+      "project_dir_exists": true,
+      "project_dir_writable": true,
+      "success_criteria_present": true,
+      "claude_available": true,
+      "codex_available": true
+    },
+    "orchestrator_guidance": "Plan passed gate and preflight. Proceed to finalize. Verify unresolved flags against the plan and project code before accepting. Scope creep detected; compare the current plan against the original idea."
+  }
+}

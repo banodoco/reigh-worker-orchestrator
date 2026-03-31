@@ -1,0 +1,45 @@
+{
+  "output": "Implemented T1 in `gpu_orchestrator/worker_state.py`: added `DerivedWorkerState.in_startup_phase`, computed it from `startup_phase` before `_determine_lifecycle`, and returned it in `derive_worker_state()`. Verified the key safety case with a targeted Python invocation: a worker with `startup_phase='deps_installing'` and no heartbeat produced `in_startup_phase=True` while remaining in the spawning lifecycle.",
+  "files_changed": [
+    "gpu_orchestrator/worker_state.py"
+  ],
+  "commands_run": [
+    "sed -n '1,220p' /Users/peteromalley/.codex/skills/megaplan/SKILL.md",
+    "sed -n '1,220p' gpu_orchestrator/worker_state.py",
+    "sed -n '220,360p' gpu_orchestrator/worker_state.py",
+    "python - <<'PY'\nfrom datetime import datetime, timezone\nfrom types import SimpleNamespace\nfrom gpu_orchestrator.worker_state import derive_worker_state\n\nnow = datetime(2026, 3, 30, tzinfo=timezone.utc)\nworker = {\n    'id': 'w1',\n    'status': 'active',\n    'created_at': '2026-03-30T00:00:00+00:00',\n    'last_heartbeat': None,\n    'metadata': {\n        'startup_phase': 'deps_installing',\n        'startup_script_launched': True,\n    },\n}\nconfig = SimpleNamespace(\n    heartbeat_promotion_threshold_sec=30,\n    gpu_idle_timeout_sec=300,\n    gpu_not_detected_timeout_sec=600,\n    ready_not_claiming_timeout_sec=600,\n    startup_grace_period_sec=600,\n    spawning_timeout_sec=1200,\n)\nstate = derive_worker_state(worker, config, now, has_ever_claimed=False, has_active_task=False, queued_count=0)\nprint({\n    'in_startup_phase': state.in_startup_phase,\n    'has_heartbeat': state.has_heartbeat,\n    'lifecycle': state.lifecycle.value,\n})\nPY",
+    "test -w .megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_1.json && echo writable || echo not_writable",
+    "git diff -- gpu_orchestrator/worker_state.py"
+  ],
+  "deviations": [
+    "Best-effort checkpointing to `.megaplan/plans/refactor-gpu-orchestrator-20260329-2333/execution_batch_1.json` was skipped because the target file was not writable.",
+    "Advisory quality: gpu_orchestrator/worker_state.py adds unused imports: OrchestratorConfig.",
+    "Advisory quality: code changes lacked test updates: gpu_orchestrator/worker_state.py.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: gpu_orchestrator/control_loop.py, tests/gpu_orchestrator/control/phases/test_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/runpod, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator, tests/orchestrator_common, tests/scaling_decision_helpers.py, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py, tests/test_scaling_decision_limits.py, tests/test_scaling_decision_spawn.py",
+    "Advisory audit finding: Sense check SC2 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC3 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC4 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC5 is missing an executor acknowledgment."
+  ],
+  "task_updates": [
+    {
+      "task_id": "T1",
+      "status": "done",
+      "executor_notes": "Added `in_startup_phase: bool` after `ready_for_tasks`, extracted `startup_phase` once, computed `in_startup_phase = startup_phase in ('deps_installing', 'deps_verified', 'worker_starting')` before `_determine_lifecycle`, and returned it in `DerivedWorkerState`. Verified the safety-critical pre-heartbeat case with a targeted `derive_worker_state()` call: `startup_phase='deps_installing'`, `last_heartbeat=None` yielded `in_startup_phase=True` and spawning lifecycle.",
+      "files_changed": [
+        "gpu_orchestrator/worker_state.py"
+      ],
+      "commands_run": [
+        "python - <<'PY' ... derive_worker_state(...) ... PY",
+        "git diff -- gpu_orchestrator/worker_state.py"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC1",
+      "executor_note": "Yes. Verified directly: a worker with `startup_phase='deps_installing'` and no heartbeat produced `in_startup_phase=True` while in `spawning_script_running`, confirming the flag is set independently of heartbeat presence."
+    }
+  ]
+}

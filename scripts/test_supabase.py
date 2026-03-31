@@ -10,14 +10,14 @@ import json
 from pathlib import Path
 from datetime import datetime
 
+from dotenv import load_dotenv
+from supabase import create_client, Client
+
 # Add project root to path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from dotenv import load_dotenv
-from supabase import create_client, Client
-
-async def test_supabase_connection():
+async def check_supabase_connection():
     """Test basic Supabase connection and operations."""
     
     print("🧪 Testing Supabase Connection...")
@@ -42,7 +42,7 @@ async def test_supabase_connection():
         print("\n📊 Testing orchestrator_status view...")
         try:
             result = supabase.table('orchestrator_status').select('*').execute()
-            print(f"✅ orchestrator_status view accessible")
+            print("✅ orchestrator_status view accessible")
             print(f"   Current status: {json.dumps(result.data[0] if result.data else {}, indent=2)}")
         except Exception as e:
             print(f"❌ orchestrator_status view error: {e}")
@@ -87,7 +87,7 @@ async def test_supabase_connection():
         except Exception as e:
             print(f"❌ RPC function error: {e}")
             if hasattr(e, 'message'):
-                print(f"   💡 Run the SQL migrations to create RPC functions")
+                print("   💡 Run the SQL migrations to create RPC functions")
         
         # Test 5: Test active_workers_health view
         print("\n💚 Testing active_workers_health view...")
@@ -158,7 +158,7 @@ def main():
     args = parser.parse_args()
     
     # Run the main test
-    success = asyncio.run(test_supabase_connection())
+    success = asyncio.run(check_supabase_connection())
     
     # Create test task if requested
     if args.create_task:

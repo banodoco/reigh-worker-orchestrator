@@ -1,0 +1,37 @@
+{
+  "version": 2,
+  "timestamp": "2026-03-29T21:59:04Z",
+  "hash": "sha256:c442fd70c156b7bed597731133dd2a40558310015eb2656c5f74600b07ba1ad7",
+  "changes_summary": "Corrected root-cause analysis (removed _reconcile_orphaned_tasks as a competing path \u2014 it only handles dead workers). Preserved failsafe startup_phase guard via new `in_startup_phase` field on DerivedWorkerState. Narrowed health check cleanup to actual duplicates (stale+queued at lines 539-547) and dead code (no-heartbeat branches at 521-528, 556-562), explicitly keeping legitimate async checks (idle timeout, failure streaks, basic health). Dropped Phase 2 (mixin wiring) as out of scope.",
+  "flags_addressed": [
+    "worker-lifecycle-root-cause-mismatch",
+    "worker-lifecycle-startup-phase-regression",
+    "scaling-health-boundary-idle-timeout",
+    "control-refactor-scope-creep"
+  ],
+  "questions": [
+    "Is there a CI pipeline or specific test command to run? I see tests/ but want to confirm the right invocation (pytest, specific markers, etc).",
+    "The _perform_basic_health_check at line 549-553 (fresh heartbeat but not claiming, with queued tasks) applies a 60s threshold that's tighter than gpu_idle_timeout_sec. Should this tighter check eventually move into derive_worker_state as a separate termination condition, or is it intentionally a supplementary runtime probe?"
+  ],
+  "success_criteria": [
+    "DerivedWorkerState has `in_startup_phase: bool` field that is set regardless of heartbeat status",
+    "`_failsafe_stale_worker_check` accepts `List[DerivedWorkerState]` and does zero raw datetime parsing or metadata access",
+    "`_health_check_active_workers` has no duplicate stale+queued check \u2014 the only verdict branch is `ws.should_terminate` at the top",
+    "Dead code removed: no-heartbeat branches in health check (lines 521-528, 556-562) are gone",
+    "startup_phase raw metadata access (`metadata.get('startup_phase')`) does not appear in `_failsafe_stale_worker_check`",
+    "Idle-timeout-with-no-work path (lines 564-573) is preserved unchanged in health phase",
+    "All existing tests pass",
+    "New tests cover: in_startup_phase field derivation (with and without heartbeat), failsafe skipping startup workers"
+  ],
+  "assumptions": [
+    "derive_worker_state() remains a pure synchronous function \u2014 async DB queries (failure streaks, task history, idle timeout) stay in the health phase.",
+    "_perform_basic_health_check (heartbeat < 60s) is a tighter threshold than the stale detection in derive_worker_state (gpu_idle_timeout_sec). It stays in the health phase as a supplementary probe for the fresh-but-not-claiming case.",
+    "The control/phases/ mixin files are stale copies that should be updated to match canonical code but NOT wired in as part of this plan.",
+    "_reconcile_orphaned_tasks is NOT a health verdict path and requires no changes in this plan \u2014 it correctly only handles ERROR/TERMINATED workers.",
+    "The idle-timeout-with-no-work path (lines 564-573) using _is_worker_idle_with_timeout is a scale-down concern, not a health verdict. It stays in the health phase and is NOT mapped to any derived field."
+  ],
+  "structure_warnings": [
+    "Each step section should include at least one numbered substep."
+  ],
+  "delta_from_previous_percent": 85.03
+}

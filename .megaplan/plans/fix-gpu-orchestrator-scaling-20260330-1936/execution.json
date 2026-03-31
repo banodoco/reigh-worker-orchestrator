@@ -1,0 +1,187 @@
+{
+  "output": "Aggregated execute batches: completed 3/3.\nBatch 1: Batch 1 executed: T1 and T2 are complete, targeted verification passed, and a checkpoint was written to .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_1.json.\nBatch 2: Batch 2 executed: T3 is complete, the new/updated tests passed, and the batch checkpoint was written to .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_2.json.\nBatch 3: Batch 3 executed successfully. T4 is complete: all required pytest runs passed, strengthened verification confirmed the spawn-failure path maps RunPod `status == error` to `final_status = terminated` in both `_spawn_worker` implementations, and the batch checkpoint was updated at `.megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_3.json`.",
+  "files_changed": [
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control_loop.py",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/worker_state.py",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/health.py",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/lifecycle.py",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/worker_capacity.py",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/scaling_decision.py",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/periodic.py",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_1.json",
+    "tests/test_scaling_decision_spawn.py",
+    "tests/test_scaling_decision_limits.py",
+    "tests/gpu_orchestrator/control/phases/test_lifecycle.py",
+    "tests/test_circuit_breaker.py",
+    ".megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_2.json",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_3.json"
+  ],
+  "commands_run": [
+    "git status --short",
+    "rg -n \"gpu_idle_timeout_sec|early_desired = max\\(|buffer_based = busy_count \\+ config\\.machines_to_keep_idle|desired_floor = max\\(|max_by_buffer = max\\(0, decision\\.idle_count - config\\.machines_to_keep_idle\\)|mark_worker_error\\(worker_id, 'Failed to spawn Runpod instance'\\)|mark_worker_error\\(worker_id, \\\"Failed to spawn Runpod instance\\\"\\)|_calculate_scaling_decision_legacy|_failsafe_stale_worker_check|if ws\\.should_terminate: continue\" gpu_orchestrator/control_loop.py gpu_orchestrator/worker_state.py gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/lifecycle.py gpu_orchestrator/control/phases/worker_capacity.py gpu_orchestrator/control/phases/scaling_decision.py gpu_orchestrator/control/phases/periodic.py",
+    "sed -n '330,370p' gpu_orchestrator/control_loop.py",
+    "sed -n '530,555p' gpu_orchestrator/control_loop.py",
+    "sed -n '820,845p' gpu_orchestrator/control_loop.py",
+    "sed -n '935,947p' gpu_orchestrator/control_loop.py",
+    "sed -n '1328,1342p' gpu_orchestrator/control_loop.py",
+    "sed -n '1548,1568p' gpu_orchestrator/control_loop.py",
+    "sed -n '452,495p' gpu_orchestrator/worker_state.py",
+    "sed -n '112,142p' gpu_orchestrator/control/phases/health.py",
+    "sed -n '36,56p' gpu_orchestrator/control/phases/lifecycle.py",
+    "sed -n '40,78p' gpu_orchestrator/control/phases/scaling_decision.py",
+    "sed -n '40,56p' gpu_orchestrator/control/phases/worker_capacity.py",
+    "sed -n '232,246p' gpu_orchestrator/control/phases/worker_capacity.py",
+    "sed -n '182,202p' gpu_orchestrator/control/phases/periodic.py",
+    "sed -n '1,24p' gpu_orchestrator/control/phases/worker_capacity.py",
+    "sed -n '1,24p' gpu_orchestrator/control_loop.py",
+    "rg -n \"machines_to_keep_idle\" gpu_orchestrator | sed '/config.py/d'",
+    "rg -nP \"config\\.machines_to_keep_idle(?!, 1\\))\" gpu_orchestrator/control_loop.py gpu_orchestrator/worker_state.py gpu_orchestrator/control/phases/lifecycle.py gpu_orchestrator/control/phases/scaling_decision.py gpu_orchestrator/control/phases/worker_capacity.py",
+    "rg -n \"mark_worker_error|_is_worker_idle_with_timeout|Failed basic health check with tasks queued|heartbeat|stuck\" gpu_orchestrator/control/phases/health.py gpu_orchestrator/control_loop.py",
+    "rg -n \"Idle healthy workers are PATH B's responsibility|ws\\.is_active and not ws\\.has_active_task and ws\\.heartbeat_is_recent|spawning_timeout_sec|gpu_idle_timeout_sec\" gpu_orchestrator/control/phases/periodic.py gpu_orchestrator/control_loop.py",
+    "rg -n \"mark_worker_error\\(worker_id, .*spawn|mark_worker_error\\(.*Failed to spawn Runpod instance|update_worker_status\\(\\s*worker_id,\\s*['\\\"]terminated['\\\"]\" gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/worker_capacity.py",
+    "rg -n \"spawn_failed|Failed to spawn Runpod instance\" gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/worker_capacity.py",
+    "python -m py_compile gpu_orchestrator/control_loop.py gpu_orchestrator/worker_state.py gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/lifecycle.py gpu_orchestrator/control/phases/worker_capacity.py gpu_orchestrator/control/phases/scaling_decision.py gpu_orchestrator/control/phases/periodic.py",
+    "test -w .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_1.json && echo writable || { test -e .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_1.json && echo exists_not_writable || echo missing_or_parent_check; }",
+    "ls -ld .megaplan .megaplan/plans .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936",
+    "ls -1 .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936",
+    "sed -n '1,220p' tests/scaling_decision_helpers.py",
+    "sed -n '1,260p' tests/test_scaling_decision_spawn.py",
+    "sed -n '1,220p' tests/test_scaling_decision_limits.py",
+    "sed -n '1,260p' tests/gpu_orchestrator/control/phases/test_lifecycle.py",
+    "rg -n \"_check_worker_failure_rate|failure rate|spawn_failed|terminated\" tests gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/worker_capacity.py",
+    "sed -n '1381,1435p' gpu_orchestrator/control_loop.py",
+    "sed -n '286,334p' gpu_orchestrator/control/phases/worker_capacity.py",
+    "sed -n '1,220p' tests/gpu_orchestrator/control/test_contracts.py",
+    "rg -n \"ControlLoop|OrchestratorControlLoop|ControlHost|_check_worker_failure_rate\\(\" tests -g '*.py'",
+    "rg -n \"calculate_scaling_decision_pure|workers_to_terminate|spawn_reason_floor\" tests -g '*.py'",
+    "sed -n '1,180p' gpu_orchestrator/control/phases/lifecycle.py",
+    "sed -n '430,520p' gpu_orchestrator/worker_state.py",
+    "python -m pytest tests/test_scaling_decision_spawn.py tests/test_scaling_decision_limits.py tests/gpu_orchestrator/control/phases/test_lifecycle.py tests/test_circuit_breaker.py -v",
+    "git status --short -- tests/test_scaling_decision_spawn.py tests/test_scaling_decision_limits.py tests/gpu_orchestrator/control/phases/test_lifecycle.py tests/test_circuit_breaker.py .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936",
+    "test -w .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936 && echo writable",
+    "ls -l .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_2.json && git status --short -- .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_2.json tests/test_scaling_decision_spawn.py tests/test_scaling_decision_limits.py tests/gpu_orchestrator/control/phases/test_lifecycle.py tests/test_circuit_breaker.py",
+    "TMPDIR=/tmp python -m pytest tests/test_scaling_decision_spawn.py tests/test_scaling_decision_limits.py -v",
+    "TMPDIR=/tmp python -m pytest tests/gpu_orchestrator/ -v",
+    "TMPDIR=/tmp python -m pytest tests/test_circuit_breaker.py -v",
+    "TMPDIR=/tmp python -m pytest tests/ -v",
+    "rg -n \"_mark_worker_error|Idle timeout \\(|_is_worker_idle_with_timeout\" gpu_orchestrator/control/phases/health.py gpu_orchestrator/control_loop.py",
+    "rg -n \"machines_to_keep_idle\" gpu_orchestrator",
+    "rg -n \"mark_worker_error.*spawn|mark_worker_error\\(.*Failed to spawn Runpod instance|final_status\\s*=\\s*['\\\"]error['\\\"]|status\\s*==\\s*['\\\"]error['\\\"]|spawn_failed\" gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/worker_capacity.py",
+    "rg -n -C 2 \"final_status\\s*=|status\\s*==\\s*'error'|status\\s*==\\s*\\\"error\\\"\" gpu_orchestrator/control_loop.py",
+    "rg -n -C 2 \"final_status\\s*=|status\\s*==\\s*'error'|status\\s*==\\s*\\\"error\\\"\" gpu_orchestrator/control/phases/worker_capacity.py",
+    "rg -n \"use_new_scaling_logic\" gpu_orchestrator/config.py",
+    "python -m json.tool .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_3.json >/tmp/execution_batch_3.pretty.json"
+  ],
+  "deviations": [
+    "Advisory observation mismatch: executor claimed files not observed in git status/content hash delta: .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_1.json",
+    "Advisory quality: gpu_orchestrator/control/phases/health.py adds unused imports: ControlHost.",
+    "Advisory quality: gpu_orchestrator/control/phases/lifecycle.py adds unused imports: ControlHost.",
+    "Advisory quality: gpu_orchestrator/control/phases/periodic.py adds unused imports: ControlHost.",
+    "Advisory quality: gpu_orchestrator/control/phases/scaling_decision.py adds unused imports: ControlHost.",
+    "Advisory quality: gpu_orchestrator/control/phases/worker_capacity.py adds unused imports: ControlHost.",
+    "Advisory quality: gpu_orchestrator/worker_state.py adds unused imports: OrchestratorConfig.",
+    "Advisory quality: code changes lacked test updates: gpu_orchestrator/control/phases/health.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/periodic.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/control_loop.py, gpu_orchestrator/worker_state.py.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/health.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/lifecycle.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/periodic.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/scaling_decision.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/worker_capacity.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control_loop.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/worker_state.py, tests/test_circuit_breaker.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/health.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/periodic.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/control_loop.py, gpu_orchestrator/runpod, gpu_orchestrator/worker_state.py, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator/__init__.py, tests/gpu_orchestrator/control/__init__.py, tests/gpu_orchestrator/control/phases/__init__.py, tests/gpu_orchestrator/control/phases/test_health.py, tests/gpu_orchestrator/control/phases/test_scaling_decision.py, tests/gpu_orchestrator/control/phases/test_worker_capacity.py, tests/gpu_orchestrator/control/test_contracts.py, tests/gpu_orchestrator/control/test_decision_io.py, tests/gpu_orchestrator/control/test_diagnostics.py, tests/gpu_orchestrator/runpod, tests/orchestrator_common, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py",
+    "Advisory audit finding: Sense check SC4 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC5 is missing an executor acknowledgment.",
+    "tests/scaling_decision_helpers.py already defaults machines_to_keep_idle to 1 in the current checkout, so no helper edit was required despite the plan text calling out a default of 0.",
+    "Advisory observation mismatch: executor claimed files not observed in git status/content hash delta: .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_2.json",
+    "Advisory audit finding: Executor claimed changed files not present in git status: /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/health.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/lifecycle.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/periodic.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/scaling_decision.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/worker_capacity.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control_loop.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/worker_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/health.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/periodic.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/control_loop.py, gpu_orchestrator/runpod, gpu_orchestrator/worker_state.py, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator/__init__.py, tests/gpu_orchestrator/control/__init__.py, tests/gpu_orchestrator/control/phases/__init__.py, tests/gpu_orchestrator/control/phases/test_health.py, tests/gpu_orchestrator/control/phases/test_scaling_decision.py, tests/gpu_orchestrator/control/phases/test_worker_capacity.py, tests/gpu_orchestrator/control/test_contracts.py, tests/gpu_orchestrator/control/test_decision_io.py, tests/gpu_orchestrator/control/test_diagnostics.py, tests/gpu_orchestrator/runpod, tests/orchestrator_common, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py",
+    "Advisory audit finding: Sense check SC5 is missing an executor acknowledgment.",
+    "Prefixed pytest invocations with `TMPDIR=/tmp` to ensure a writable temp directory in this sandbox; test scope and assertions were unchanged.",
+    "Advisory observation mismatch: executor claimed files not observed in git status/content hash delta: .megaplan/plans/fix-gpu-orchestrator-scaling-20260330-1936/execution_batch_3.json",
+    "Advisory: done tasks rely on commands_run without files_changed (FLAG-006 softening): T4",
+    "Advisory audit finding: Executor claimed changed files not present in git status: /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/health.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/lifecycle.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/periodic.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/scaling_decision.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/worker_capacity.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control_loop.py, /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/worker_state.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .desloppify, .megaplan, README.md, api_orchestrator/Dockerfile, api_orchestrator/database.py, api_orchestrator/database_log_handler.py, api_orchestrator/handlers, api_orchestrator/logging_config.py, api_orchestrator/main.py, api_orchestrator/task_handlers.py, api_orchestrator/task_utils.py, env.example, gpu_orchestrator/control/__init__.py, gpu_orchestrator/control/contracts.py, gpu_orchestrator/control/decision_io.py, gpu_orchestrator/control/diagnostics.py, gpu_orchestrator/control/phases/__init__.py, gpu_orchestrator/control/phases/health.py, gpu_orchestrator/control/phases/lifecycle.py, gpu_orchestrator/control/phases/periodic.py, gpu_orchestrator/control/phases/scaling_decision.py, gpu_orchestrator/control/phases/worker_capacity.py, gpu_orchestrator/control_loop.py, gpu_orchestrator/runpod, gpu_orchestrator/worker_state.py, orchestrator_common, railway.json, requirements-dev.txt, scorecard.png, scripts/debug/client.py, scripts/debug/commands/config.py, scripts/debug/commands/infra.py, scripts/debug/commands/runpod.py, scripts/debug/commands/storage.py, scripts/debug/commands/worker.py, scripts/debug/formatters.py, scripts/debug/presenters, scripts/debug/services, scripts/test_claim_next_task.py, scripts/test_runpod.py, scripts/test_supabase.py, scripts/tests/test_fal_tasks.py, scripts/tests/test_qwen_edit_models.py, tasks/2026-02-16-decomposition-plan.md, tests/api_orchestrator, tests/gpu_orchestrator/__init__.py, tests/gpu_orchestrator/control/__init__.py, tests/gpu_orchestrator/control/phases/__init__.py, tests/gpu_orchestrator/control/phases/test_health.py, tests/gpu_orchestrator/control/phases/test_scaling_decision.py, tests/gpu_orchestrator/control/phases/test_worker_capacity.py, tests/gpu_orchestrator/control/test_contracts.py, tests/gpu_orchestrator/control/test_decision_io.py, tests/gpu_orchestrator/control/test_diagnostics.py, tests/gpu_orchestrator/runpod, tests/orchestrator_common, tests/scripts, tests/test_direct_control_health.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py, tests/test_runpod_decomposition.py, tests/test_scaling_decision.py"
+  ],
+  "task_updates": [
+    {
+      "task_id": "T1",
+      "status": "done",
+      "executor_notes": "Applied the requested Phase 1 fixes in both the legacy control_loop.py path and the corresponding phase mixins: removed PATH A idle-timeout termination, enforced max(config.machines_to_keep_idle, 1) in desired_floor/buffer/early_desired/scale-down buffer calculations, changed spawn-failure handling from error to terminated with termination_reason=spawn_failed, and added the DECISION-003 TODO comment to control_loop.py legacy scaling. Verification: greps show scaling/termination logic now uses max(..., 1) everywhere relevant, health.py no longer contains the idle-timeout termination block, and spawn failures no longer call mark_worker_error.",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control_loop.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/worker_state.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/health.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/lifecycle.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/worker_capacity.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/scaling_decision.py"
+      ],
+      "commands_run": [
+        "rg -n \"machines_to_keep_idle\" gpu_orchestrator | sed '/config.py/d'",
+        "rg -n \"mark_worker_error|_is_worker_idle_with_timeout|Failed basic health check with tasks queued|heartbeat|stuck\" gpu_orchestrator/control/phases/health.py gpu_orchestrator/control_loop.py",
+        "rg -n \"spawn_failed|Failed to spawn Runpod instance\" gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/worker_capacity.py",
+        "python -m py_compile gpu_orchestrator/control_loop.py gpu_orchestrator/worker_state.py gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/lifecycle.py gpu_orchestrator/control/phases/worker_capacity.py gpu_orchestrator/control/phases/scaling_decision.py gpu_orchestrator/control/phases/periodic.py"
+      ]
+    },
+    {
+      "task_id": "T2",
+      "status": "done",
+      "executor_notes": "Added the healthy-idle worker guard to both failsafe implementations so PATH C skips recent-heartbeat idle workers and leaves them to PATH B scaling execution. Verification: both control_loop.py and periodic.py now continue on ws.is_active and not ws.has_active_task and ws.heartbeat_is_recent, while stale detection still uses spawning_timeout_sec for spawning workers and gpu_idle_timeout_sec for genuinely stale/lost-heartbeat workers.",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control_loop.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control/phases/periodic.py"
+      ],
+      "commands_run": [
+        "rg -n \"Idle healthy workers are PATH B's responsibility|ws\\.is_active and not ws\\.has_active_task and ws\\.heartbeat_is_recent|spawning_timeout_sec|gpu_idle_timeout_sec\" gpu_orchestrator/control/phases/periodic.py gpu_orchestrator/control_loop.py",
+        "python -m py_compile gpu_orchestrator/control_loop.py gpu_orchestrator/worker_state.py gpu_orchestrator/control/phases/health.py gpu_orchestrator/control/phases/lifecycle.py gpu_orchestrator/control/phases/worker_capacity.py gpu_orchestrator/control/phases/scaling_decision.py gpu_orchestrator/control/phases/periodic.py"
+      ]
+    },
+    {
+      "task_id": "T3",
+      "status": "done",
+      "executor_notes": "Updated the scaling-decision tests to match the enforced warm-capacity floor, added the two required machines_to_keep_idle=0 scale-down/buffer cases, added a lifecycle mixin test proving early termination keeps the minimum warm buffer, and added a circuit-breaker test covering terminated spawn_failed workers. Verification: python -m pytest tests/test_scaling_decision_spawn.py tests/test_scaling_decision_limits.py tests/gpu_orchestrator/control/phases/test_lifecycle.py tests/test_circuit_breaker.py -v passed with 23 tests green.",
+      "files_changed": [
+        "tests/test_scaling_decision_spawn.py",
+        "tests/test_scaling_decision_limits.py",
+        "tests/gpu_orchestrator/control/phases/test_lifecycle.py",
+        "tests/test_circuit_breaker.py"
+      ],
+      "commands_run": [
+        "python -m pytest tests/test_scaling_decision_spawn.py tests/test_scaling_decision_limits.py tests/gpu_orchestrator/control/phases/test_lifecycle.py tests/test_circuit_breaker.py -v"
+      ]
+    },
+    {
+      "task_id": "T4",
+      "status": "done",
+      "executor_notes": "Ran the full required verification sequence successfully with `TMPDIR=/tmp`: 20/20 passed for `tests/test_scaling_decision_spawn.py` plus `tests/test_scaling_decision_limits.py`, 21/21 passed for `tests/gpu_orchestrator/`, 1/1 passed for `tests/test_circuit_breaker.py`, and 78/78 passed for `python -m pytest tests/ -v`. Strengthened verification confirms no idle-timeout termination callers remain in the health-check path, all relevant scaling/termination uses of `machines_to_keep_idle` apply `max(config.machines_to_keep_idle, 1)`, there are no `final_status = error` assignments in either `_spawn_worker` implementation, both RunPod `status == error` branches map to `final_status = terminated` with `termination_reason=spawn_failed`, and `use_new_scaling_logic` defaults to `true` in `config.py`.",
+      "files_changed": [],
+      "commands_run": [
+        "TMPDIR=/tmp python -m pytest tests/test_scaling_decision_spawn.py tests/test_scaling_decision_limits.py -v",
+        "TMPDIR=/tmp python -m pytest tests/gpu_orchestrator/ -v",
+        "TMPDIR=/tmp python -m pytest tests/test_circuit_breaker.py -v",
+        "TMPDIR=/tmp python -m pytest tests/ -v",
+        "rg -n \"_mark_worker_error|Idle timeout \\(|_is_worker_idle_with_timeout\" gpu_orchestrator/control/phases/health.py gpu_orchestrator/control_loop.py",
+        "rg -n \"machines_to_keep_idle\" gpu_orchestrator",
+        "rg -n \"mark_worker_error.*spawn|mark_worker_error\\(.*Failed to spawn Runpod instance|final_status\\s*=\\s*['\\\"]error['\\\"]|status\\s*==\\s*['\\\"]error['\\\"]|spawn_failed\" gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/worker_capacity.py",
+        "rg -n -C 2 \"final_status\\s*=|status\\s*==\\s*'error'|status\\s*==\\s*\\\"error\\\"\" gpu_orchestrator/control_loop.py",
+        "rg -n -C 2 \"final_status\\s*=|status\\s*==\\s*'error'|status\\s*==\\s*\\\"error\\\"\" gpu_orchestrator/control/phases/worker_capacity.py",
+        "rg -n \"use_new_scaling_logic\" gpu_orchestrator/config.py"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC1",
+      "executor_note": "Satisfied. In scaling/termination logic, desired_floor, buffer_based, early_desired, and max_by_buffer now use max(config.machines_to_keep_idle, 1) in worker_state.py, control_loop.py, lifecycle.py, scaling_decision.py, and worker_capacity.py. Remaining bare machines_to_keep_idle references are logging-only."
+    },
+    {
+      "sense_check_id": "SC2",
+      "executor_note": "Satisfied. health.py no longer contains the idle-timeout mark_worker_error block. The health path still performs queued-task basic health checks, busy-worker heartbeat validation, and stuck-task detection."
+    },
+    {
+      "sense_check_id": "SC3",
+      "executor_note": "Satisfied. Both failsafe implementations now skip ws.is_active and not ws.has_active_task and ws.heartbeat_is_recent, while still flagging spawning-timeout workers and workers whose heartbeat/effective age exceeds the configured cutoff."
+    },
+    {
+      "sense_check_id": "SC4",
+      "executor_note": "Satisfied. The updated/new tests cover all four requested scenarios: preserving warm idle capacity with machines_to_keep_idle=0, overcapacity scale-down while still keeping one idle worker, early termination honoring max(machines_to_keep_idle, 1), and terminated spawn_failed workers not poisoning the failure-rate circuit breaker."
+    },
+    {
+      "sense_check_id": "SC5",
+      "executor_note": "Satisfied. `TMPDIR=/tmp python -m pytest tests/ -v` passed with 78 tests and 0 failures. Strengthened verification confirms no idle-timeout termination callers remain in the health-check path, all relevant scaling/termination uses of `machines_to_keep_idle` apply `max(..., 1)`, and both `_spawn_worker` implementations map RunPod `status == error` to `final_status = terminated` with `termination_reason=spawn_failed` rather than any error-status worker update."
+    }
+  ]
+}

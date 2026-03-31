@@ -1,0 +1,117 @@
+{
+  "robustness": "standard",
+  "signals": {
+    "iteration": 1,
+    "idea": "Refactor GPU orchestrator worker health/lifecycle into single source of truth. Currently 3 separate places assess worker health with overlapping inconsistent logic: worker_state.py _determine_lifecycle, control_loop.py _failsafe_stale_worker_check, control_loop.py _reconcile_orphaned_tasks. Each has own idea of should-I-kill-this-worker and they diverge. startup_phase had to be patched into all 3 independently. Goal: DerivedWorkerState is the ONE verdict, everything else reads it. control/phases/ refactoring started but not wired in. Make obvious and easy to understand. Key files: gpu_orchestrator/worker_state.py, gpu_orchestrator/control_loop.py (1600+ lines god object), gpu_orchestrator/control/phases/*.py, gpu_orchestrator/database.py",
+    "significant_flags": 4,
+    "unresolved_flags": [
+      {
+        "id": "worker-lifecycle-root-cause-mismatch",
+        "concern": "Worker lifecycle: CRITICAL: the plan's root-cause analysis is not aligned with the repo. `derive_worker_state()` already owns several queued/stale termination verdicts, and `_reconcile_orphaned_tasks()` is not a competing kill-worker path at all. The remaining duplication is narrower: inline health checks plus failsafe, and the stale copies in `control/phases/`.",
+        "category": "correctness",
+        "severity": "significant",
+        "status": "open"
+      },
+      {
+        "id": "worker-lifecycle-startup-phase-regression",
+        "concern": "Worker lifecycle: CRITICAL: Step 3's plan to delete the failsafe `startup_phase` guard is unsafe. In the current code, `_determine_lifecycle()` only consults `startup_phase` after a real heartbeat exists, so no-heartbeat startup workers would lose their only protection and become failsafe-eligible once they exceed `spawning_timeout_sec`.",
+        "category": "correctness",
+        "severity": "significant",
+        "status": "open"
+      },
+      {
+        "id": "scaling-health-boundary-idle-timeout",
+        "concern": "Scaling/health boundary: Step 2 removes the no-work idle-timeout branch on the claim that `DerivedWorkerState.is_not_claiming` already covers it, but the repo does not support that. `is_not_claiming` is only derived when queued work exists, while the current no-work path depends on task-history queries and is also reused by scale-down execution. The plan needs an explicit owner for that behavior instead of treating it as already derived.",
+        "category": "correctness",
+        "severity": "significant",
+        "status": "open"
+      },
+      {
+        "id": "control-refactor-scope-creep",
+        "concern": "Control refactor: Scope creep: Phase 2 turns a focused health-verdict consolidation into a second broad class-decomposition project. The mixin infrastructure already exists, so bundling full host rewiring and a `<400`-line target into the same change increases risk without being necessary to prove the single-source-of-truth fix.",
+        "category": "maintainability",
+        "severity": "significant",
+        "status": "open"
+      }
+    ],
+    "resolved_flags": [],
+    "weighted_score": 6.75,
+    "weighted_history": [],
+    "plan_delta_from_previous": null,
+    "recurring_critiques": [],
+    "scope_creep_flags": [
+      "control-refactor-scope-creep"
+    ],
+    "loop_summary": "Iteration 1. Weighted score trajectory: 6.75. Plan deltas: n/a. Recurring critiques: 0. Resolved flags: 0. Open significant flags: 4.",
+    "debt_overlaps": [],
+    "escalated_debt_subsystems": []
+  },
+  "warnings": [
+    "Scope creep detected: the plan appears to be expanding beyond the original idea or recorded user notes."
+  ],
+  "criteria_check": {
+    "count": 7,
+    "items": [
+      "DerivedWorkerState is the ONLY place that computes should_terminate verdicts \u2014 grep for heartbeat datetime arithmetic in control_loop.py returns zero matches outside of worker_state.py",
+      "_health_check_active_workers contains no if-branches that compute health verdicts \u2014 it only reads ws.should_terminate and ws.termination_reason and acts on them",
+      "_failsafe_stale_worker_check operates on List[DerivedWorkerState] not List[Dict] \u2014 no raw heartbeat parsing",
+      "startup_phase is checked in exactly ONE place: _determine_lifecycle in worker_state.py",
+      "All existing tests pass after Phase 1",
+      "control_loop.py reduced to <400 lines after Phase 2 (from 1699)",
+      "New unit tests cover: idle-with-queued-tasks termination, failsafe-stale derivation, startup_phase gating of failsafe"
+    ]
+  },
+  "preflight_results": {
+    "project_dir_exists": true,
+    "project_dir_writable": true,
+    "success_criteria_present": true,
+    "claude_available": true,
+    "codex_available": true
+  },
+  "unresolved_flags": [
+    {
+      "id": "worker-lifecycle-root-cause-mismatch",
+      "concern": "Worker lifecycle: CRITICAL: the plan's root-cause analysis is not aligned with the repo. `derive_worker_state()` already owns several queued/stale termination verdicts, and `_reconcile_orphaned_tasks()` is not a competing kill-worker path at all. The remaining duplication is narrower: inline health checks plus failsafe, and the stale copies in `control/phases/`.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "`gpu_orchestrator/worker_state.py:191-223` already terminates `ACTIVE_STALE` workers with queued tasks and `ACTIVE_READY` workers that stay idle with queued work. `gpu_orchestrator/control_loop.py:766-791` `_reconcile_orphaned_tasks()` only resets tasks for workers already in `ERROR`/`TERMINATED`; it does not decide worker health.",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "significant",
+      "verified": false
+    },
+    {
+      "id": "worker-lifecycle-startup-phase-regression",
+      "concern": "Worker lifecycle: CRITICAL: Step 3's plan to delete the failsafe `startup_phase` guard is unsafe. In the current code, `_determine_lifecycle()` only consults `startup_phase` after a real heartbeat exists, so no-heartbeat startup workers would lose their only protection and become failsafe-eligible once they exceed `spawning_timeout_sec`.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "`gpu_orchestrator/control_loop.py:1590-1595` explicitly skips workers in `deps_installing`/`deps_verified`/`worker_starting` during failsafe cleanup. In `gpu_orchestrator/worker_state.py:297-323`, `startup_phase` is checked only inside `if has_heartbeat:`; the no-heartbeat branch still returns spawning states based on `startup_script_launched` alone.",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "significant",
+      "verified": false
+    },
+    {
+      "id": "scaling-health-boundary-idle-timeout",
+      "concern": "Scaling/health boundary: Step 2 removes the no-work idle-timeout branch on the claim that `DerivedWorkerState.is_not_claiming` already covers it, but the repo does not support that. `is_not_claiming` is only derived when queued work exists, while the current no-work path depends on task-history queries and is also reused by scale-down execution. The plan needs an explicit owner for that behavior instead of treating it as already derived.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "`gpu_orchestrator/worker_state.py:209-223` sets `is_not_claiming` only under `queued_count > 0`. The branch the plan wants to delete is `gpu_orchestrator/control_loop.py:564-573`, and its semantics come from `_is_worker_idle_with_timeout()` at `gpu_orchestrator/control_loop.py:1271-1302`, which checks recent completions and last completion time rather than heartbeat-derived lifecycle.",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "significant",
+      "verified": false
+    },
+    {
+      "id": "control-refactor-scope-creep",
+      "concern": "Control refactor: Scope creep: Phase 2 turns a focused health-verdict consolidation into a second broad class-decomposition project. The mixin infrastructure already exists, so bundling full host rewiring and a `<400`-line target into the same change increases risk without being necessary to prove the single-source-of-truth fix.",
+      "category": "maintainability",
+      "severity_hint": "likely-significant",
+      "evidence": "`gpu_orchestrator/control/contracts.py:11-43` already defines `ControlHost`; shared helpers already live in `gpu_orchestrator/control/diagnostics.py:18-35` and `gpu_orchestrator/control/decision_io.py:17-27`; phase modules already exist under `gpu_orchestrator/control/phases/`. Current file sizes are `1699` lines for `gpu_orchestrator/control_loop.py` and roughly `1400` additional lines across the phase modules (`wc -l gpu_orchestrator/control_loop.py gpu_orchestrator/control/phases/*.py`).",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "significant",
+      "verified": false
+    }
+  ]
+}

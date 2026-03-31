@@ -6,23 +6,15 @@ and actual claim mode (to see what task gets returned).
 """
 
 import os
-import sys
 import json
 import argparse
 import asyncio
 import aiohttp
-from pathlib import Path
-from datetime import datetime, timezone
-
-# Add project root to path
-sys.path.append(str(Path(__file__).parent.parent))
 
 from gpu_orchestrator.database import DatabaseClient
 from dotenv import load_dotenv
 
-load_dotenv()
-
-async def test_claim_next_task(worker_id: str = "test-worker-001", dry_run: bool = False):
+async def run_claim_next_task(worker_id: str = "test-worker-001", dry_run: bool = False):
     """
     Test the claim_next_task edge function.
     
@@ -51,7 +43,7 @@ async def test_claim_next_task(worker_id: str = "test-worker-001", dry_run: bool
         "dry_run": dry_run
     }
     
-    print(f"🚀 Testing claim_next_task edge function...")
+    print("🚀 Testing claim_next_task edge function...")
     print(f"   URL: {edge_function_url}")
     print(f"   Worker ID: {worker_id}")
     print(f"   Dry run: {dry_run}")
@@ -64,7 +56,7 @@ async def test_claim_next_task(worker_id: str = "test-worker-001", dry_run: bool
                 
                 if response.status == 200:
                     data = await response.json()
-                    print(f"✅ Response data:")
+                    print("✅ Response data:")
                     print(json.dumps(data, indent=2))
                     
                     # Extract key information
@@ -81,7 +73,7 @@ async def test_claim_next_task(worker_id: str = "test-worker-001", dry_run: bool
                             print(f"   Type: {task_type}")
                             return data
                         else:
-                            print(f"\n❌ No task was claimed (no available tasks)")
+                            print("\n❌ No task was claimed (no available tasks)")
                             return None
                 else:
                     error_text = await response.text()
@@ -92,7 +84,7 @@ async def test_claim_next_task(worker_id: str = "test-worker-001", dry_run: bool
         print(f"❌ Exception calling edge function: {e}")
         return None
 
-async def test_available_tasks_count():
+async def run_available_tasks_count():
     """Test the existing count_available_tasks_via_edge_function method."""
     print("🔍 Testing available tasks count via DatabaseClient...")
     
@@ -139,7 +131,7 @@ async def show_task_queue_status():
         recent_result = db.supabase.table('tasks').select('id, task_type, status, created_at, worker_id').order('created_at', desc=True).limit(5).execute()
         
         if recent_result.data:
-            print(f"\n   Recent tasks (last 5):")
+            print("\n   Recent tasks (last 5):")
             for task in recent_result.data:
                 created_at = task.get('created_at', 'unknown')
                 worker_id = task.get('worker_id', 'none')
@@ -149,6 +141,7 @@ async def show_task_queue_status():
         print(f"❌ Error getting task queue status: {e}")
 
 async def main():
+    load_dotenv()
     parser = argparse.ArgumentParser(description="Test the claim_next_task edge function")
     parser.add_argument('--worker-id', '-w', default='test-worker-001', help='Worker ID to use (default: test-worker-001)')
     parser.add_argument('--dry-run', '-d', action='store_true', help='Only check available tasks without claiming')
@@ -170,16 +163,16 @@ async def main():
         return
     
     # Test the DatabaseClient method first
-    await test_available_tasks_count()
+    await run_available_tasks_count()
     print()
     
     # Test the edge function directly
     if args.dry_run:
         print("🔍 Testing dry run (check available tasks)...")
-        result = await test_claim_next_task(args.worker_id, dry_run=True)
+        result = await run_claim_next_task(args.worker_id, dry_run=True)
     else:
         print("🎯 Testing actual task claiming...")
-        result = await test_claim_next_task(args.worker_id, dry_run=False)
+        result = await run_claim_next_task(args.worker_id, dry_run=False)
     
     print()
     print("=" * 60)

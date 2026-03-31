@@ -5,35 +5,32 @@ Task handlers are implemented in task_handlers.py.
 """
 
 import os
-import sys
 import asyncio
 import json
 import logging
 from typing import Any, Dict
 
 import httpx
-from dotenv import load_dotenv
-
-# Load environment variables from .env at import time so module-level reads work
-load_dotenv()
 
 # Configure structured logging before importing internal modules
-from .logging_config import setup_logging, get_db_logging_stats
+from .logging_config import get_db_logging_stats, set_current_task, setup_logging
 from .database import DatabaseClient
-
-# Initial setup without database client
-setup_logging()
 
 # Import utility modules
 from .task_utils import count_tasks, claim_next_task, mark_complete, mark_failed
 from .task_handlers import TASK_HANDLERS, SUPPORTED_TASK_TYPES
 
-CONCURRENCY = int(os.getenv("API_WORKER_CONCURRENCY", "20"))
 RUN_TYPE = "api"  # Hardcoded for API workers - they process API tasks
-PARENT_POLL_SEC = int(os.getenv("API_PARENT_POLL_SEC", "10"))
 
 
 logger = logging.getLogger(__name__)
+
+
+def _load_runtime_environment() -> None:
+    """Load environment variables at runtime for CLI execution paths."""
+    from dotenv import load_dotenv
+
+    load_dotenv()
 
 
 async def process_api_task(task: Dict[str, Any], client: httpx.AsyncClient) -> Dict[str, Any]:
@@ -58,7 +55,7 @@ async def process_api_task(task: Dict[str, Any], client: httpx.AsyncClient) -> D
             params = json.loads(params)
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse params JSON: {e}")
-            raise Exception(f"Invalid JSON in params field: {e}")
+            raise ValueError(f"Invalid JSON in params field: {e}") from e
 
     # Check for wavespeed api_type override (legacy support)
     if task_type == "qwen_image_edit" or params.get("api_type") == "wavespeed":
@@ -68,7 +65,7 @@ async def process_api_task(task: Dict[str, Any], client: httpx.AsyncClient) -> D
     handler = TASK_HANDLERS.get(task_type)
 
     if handler is None:
-        raise Exception(
+        raise ValueError(
             f"Unsupported task type: {task_type}. "
             f"Supported types: {', '.join(repr(t) for t in SUPPORTED_TASK_TYPES)}."
         )
@@ -134,12 +131,14 @@ def validate_api_environment():
 
 
 async def main_async() -> None:
-    logger.info(f"[STARTUP] API Orchestrator starting...")
+    _load_runtime_environment()
+    setup_logging()
+
+    logger.info("[STARTUP] API Orchestrator starting...")
 
     # Validate environment before proceeding
     if not validate_api_environment():
-        logger.error("[STARTUP] 🛑 Exiting due to missing required configuration!")
-        sys.exit(1)
+        raise RuntimeError("Missing required configuration for API orchestrator startup")
 
     # Initialize database client for centralized logging
     db_client = None
@@ -147,8 +146,7 @@ async def main_async() -> None:
         db_client = DatabaseClient()
 
         # Re-initialize logging with database client if DB logging is enabled
-        from .logging_config import setup_logging as reinit_logging
-        reinit_logging(db_client=db_client, source_type="orchestrator_api")
+        setup_logging(db_client=db_client, source_type="orchestrator_api")
 
         logger.info("[STARTUP] ✅ Centralized database logging initialized")
     except Exception as e:
@@ -159,25 +157,34 @@ async def main_async() -> None:
     worker_id = os.getenv("API_WORKER_ID", "api-worker-main")
     if db_client:
         if not db_client.register_worker(worker_id):
-            logger.error(f"[STARTUP] ❌ Failed to register worker {worker_id} in database!")
-            logger.error("[STARTUP] 🛑 Task claiming will fail due to foreign key constraint")
-            sys.exit(1)
+            raise RuntimeError(
+                f"Failed to register worker {worker_id} in database (foreign key prerequisite)"
+            )
         logger.info(f"[STARTUP] ✅ Worker {worker_id} registered in database")
+        # Reset any tasks orphaned by a previous crash/redeploy
+        db_client.reset_orphaned_tasks(worker_id)
     else:
         logger.warning(f"[STARTUP] ⚠️  No database client - worker {worker_id} not registered")
 
     # Log additional startup configuration
-    logger.info(f"[STARTUP] CONCURRENCY: {CONCURRENCY}")
+    concurrency = int(os.getenv("API_WORKER_CONCURRENCY", "20"))
+    parent_poll_sec = int(os.getenv("API_PARENT_POLL_SEC", "10"))
+
+    logger.info(f"[STARTUP] CONCURRENCY: {concurrency}")
     logger.info(f"[STARTUP] RUN_TYPE: {RUN_TYPE}")
-    logger.info(f"[STARTUP] PARENT_POLL_SEC: {PARENT_POLL_SEC}")
-    limits = httpx.Limits(max_connections=max(64, CONCURRENCY * 4), max_keepalive_connections=max(32, CONCURRENCY * 2))
+    logger.info(f"[STARTUP] PARENT_POLL_SEC: {parent_poll_sec}")
+    limits = httpx.Limits(
+        max_connections=max(64, concurrency * 4),
+        max_keepalive_connections=max(32, concurrency * 2),
+    )
     active_tasks: set[asyncio.Task] = set()
+    active_task_ids: set[str] = set()  # For phantom claim filtering
 
     async def spawn_task(task_payload: Dict[str, Any], client: httpx.AsyncClient):
         task_id = task_payload.get("task_id") or task_payload.get("id")
+        active_task_ids.add(str(task_id))
 
         # Set task context for logging
-        from .logging_config import set_current_task
         set_current_task(str(task_id))
 
         try:
@@ -205,11 +212,14 @@ async def main_async() -> None:
             if not failed_success:
                 logger.error(f"DOUBLE FAILURE: Task {task_id} failed AND could not mark as failed in database!")
         finally:
-            # Clear task context
+            active_task_ids.discard(str(task_id))
             set_current_task(None)
 
     async with httpx.AsyncClient(limits=limits, timeout=20.0) as client:
-        logger.info(f"[WORKER_LOOP] Starting worker loop for {worker_id} with RUN_TYPE: {RUN_TYPE}, CONCURRENCY: {CONCURRENCY}, POLL_SEC: {PARENT_POLL_SEC}")
+        logger.info(
+            f"[WORKER_LOOP] Starting worker loop for {worker_id} with RUN_TYPE: {RUN_TYPE}, "
+            f"CONCURRENCY: {concurrency}, POLL_SEC: {parent_poll_sec}"
+        )
 
         loop_count = 0
         while True:
@@ -221,7 +231,7 @@ async def main_async() -> None:
                 logger.debug(f"[WORKER_LOOP] Pruned {len(done)} completed tasks")
                 active_tasks -= done
 
-            capacity = max(0, CONCURRENCY - len(active_tasks))
+            capacity = max(0, concurrency - len(active_tasks))
 
             # Log every 10 loops or when there's activity
             if loop_count % 10 == 1 or capacity > 0 or len(active_tasks) > 0:
@@ -234,7 +244,7 @@ async def main_async() -> None:
                     logger.info(f"[WORKER_LOOP] 📊 Database logging stats: {db_stats}")
 
             if capacity > 0:
-                logger.debug(f"[WORKER_LOOP] Checking for available tasks...")
+                logger.debug("[WORKER_LOOP] Checking for available tasks...")
                 count_info = await count_tasks(client, RUN_TYPE)
                 available_tasks = int(count_info.get("queued_plus_active") or 0)
                 to_claim = min(capacity, available_tasks)
@@ -248,7 +258,7 @@ async def main_async() -> None:
                     claimed_count = 0
                     for i in range(to_claim):
                         logger.debug(f"[WORKER_LOOP] Attempting to claim task {i+1}/{to_claim}")
-                        claimed = await claim_next_task(client, worker_id, RUN_TYPE)
+                        claimed = await claim_next_task(client, worker_id, RUN_TYPE, active_task_ids)
                         if not claimed:
                             logger.warning(f"[WORKER_LOOP] Failed to claim task {i+1}/{to_claim} - no tasks available despite count showing {available_tasks}")
                             break
@@ -262,15 +272,19 @@ async def main_async() -> None:
                     elif available_tasks > 0:
                         logger.error(f"[WORKER_LOOP] CRITICAL: Could not claim any tasks despite {available_tasks} being available - check task filters and dependencies")
                 elif available_tasks == 0:
-                    logger.debug(f"[WORKER_LOOP] No tasks available to claim")
+                    logger.debug("[WORKER_LOOP] No tasks available to claim")
                 else:
-                    logger.debug(f"[WORKER_LOOP] No capacity to claim tasks")
+                    logger.debug("[WORKER_LOOP] No capacity to claim tasks")
 
-            await asyncio.sleep(PARENT_POLL_SEC)
+            await asyncio.sleep(parent_poll_sec)
 
 
 def main() -> None:
-    asyncio.run(main_async())
+    try:
+        asyncio.run(main_async())
+    except RuntimeError as exc:
+        logger.error(f"[STARTUP] {exc}")
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":

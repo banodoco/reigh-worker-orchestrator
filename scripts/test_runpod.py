@@ -8,8 +8,6 @@ import asyncio
 import logging
 import sys
 import os
-import time
-from typing import Optional
 
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -20,7 +18,7 @@ from gpu_orchestrator.runpod_client import create_runpod_client
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-async def test_api_connection():
+async def check_api_connection():
     """Test basic API connectivity."""
     print("🔗 Testing Runpod API Connection...")
     print("-" * 50)
@@ -31,7 +29,7 @@ async def test_api_connection():
         # Test GPU types
         gpu_info = client._get_gpu_type_info()
         if gpu_info:
-            print(f"✅ API connection successful")
+            print("✅ API connection successful")
             print(f"   Target GPU: {client.gpu_type}")
             print(f"   GPU ID: {gpu_info.get('id')}")
             if gpu_info.get('lowestPrice'):
@@ -46,7 +44,7 @@ async def test_api_connection():
         print(f"❌ API connection failed: {e}")
         return False
 
-async def test_network_volumes():
+async def check_network_volumes():
     """Test network volume listing and storage name lookup."""
     print("\n📁 Testing Network Volumes...")
     print("-" * 50)
@@ -84,7 +82,7 @@ async def test_network_volumes():
         print(f"❌ Error listing network volumes: {e}")
         return False
 
-async def test_ssh_configuration():
+async def check_ssh_configuration():
     """Test SSH key configuration."""
     print("\n🔐 Testing SSH Configuration...")
     print("-" * 50)
@@ -122,7 +120,7 @@ async def test_ssh_configuration():
         print(f"❌ SSH configuration error: {e}")
         return False
 
-async def test_worker_lifecycle():
+async def check_worker_lifecycle():
     """Test complete worker spawn and terminate cycle with SSH and initialization."""
     print("\n🔄 Testing Worker Lifecycle...")
     print("-" * 50)
@@ -149,7 +147,7 @@ async def test_worker_lifecycle():
         
         pod_id = result["runpod_id"]
         status = result.get("status", "unknown")
-        print(f"✅ Worker spawned successfully")
+        print("✅ Worker spawned successfully")
         print(f"   Pod ID: {pod_id}")
         print(f"   Status: {status}")
         
@@ -164,7 +162,7 @@ async def test_worker_lifecycle():
         # Test SSH connection and show initialization results
         if "ssh_details" in result:
             ssh_details = result["ssh_details"]
-            print(f"\n2. Testing SSH connection and checking setup...")
+            print("\n2. Testing SSH connection and checking setup...")
             print(f"   SSH: {ssh_details['ip']}:{ssh_details['port']}")
             
             # Test commands to verify initialization
@@ -190,38 +188,38 @@ async def test_worker_lifecycle():
                     if stderr.strip() and exit_code != 0:
                         print(f"     Error: {stderr.strip()}")
                 else:
-                    print(f"     ❌ Command failed")
+                    print("     ❌ Command failed")
         else:
             print("\n2. ⚠️  No SSH details available")
         
         # Test starting worker process manually if not auto-started
         if status == "running":
-            print(f"\n3. Testing worker process management...")
+            print("\n3. Testing worker process management...")
             if client.start_worker_process(pod_id):
                 print("✅ Worker process started successfully")
             else:
                 print("⚠️  Worker process start failed")
         
         # Wait a moment before termination
-        print(f"\n4. Waiting 30 seconds before termination...")
+        print("\n4. Waiting 30 seconds before termination...")
         await asyncio.sleep(30)
         
         # Test terminate
-        print(f"\n5. Testing worker termination...")
+        print("\n5. Testing worker termination...")
         success = client.terminate_worker(pod_id)
         
         if success:
-            print(f"✅ Worker terminated successfully")
+            print("✅ Worker terminated successfully")
             return True
         else:
-            print(f"❌ Failed to terminate worker")
+            print("❌ Failed to terminate worker")
             return False
         
     except Exception as e:
         print(f"❌ Error in worker lifecycle test: {e}")
         return False
 
-async def test_configuration():
+async def check_configuration():
     """Test configuration and environment setup."""
     print("\n⚙️  Testing Configuration...")
     print("-" * 50)
@@ -252,11 +250,11 @@ async def run_all_tests():
     print("=" * 50)
     
     tests = [
-        ("Configuration", test_configuration),
-        ("API Connection", test_api_connection),
-        ("Network Volumes", test_network_volumes),
-        ("SSH Configuration", test_ssh_configuration),
-        ("Worker Lifecycle", test_worker_lifecycle),
+        ("Configuration", check_configuration),
+        ("API Connection", check_api_connection),
+        ("Network Volumes", check_network_volumes),
+        ("SSH Configuration", check_ssh_configuration),
+        ("Worker Lifecycle", check_worker_lifecycle),
     ]
     
     results = {}
@@ -302,23 +300,23 @@ def main():
     args = parser.parse_args()
     
     if args.test == 'config':
-        success = asyncio.run(test_configuration())
+        success = asyncio.run(check_configuration())
     elif args.test == 'api':
-        success = asyncio.run(test_api_connection())
+        success = asyncio.run(check_api_connection())
     elif args.test == 'volumes':
-        success = asyncio.run(test_network_volumes())
+        success = asyncio.run(check_network_volumes())
     elif args.test == 'ssh':
-        success = asyncio.run(test_ssh_configuration())
+        success = asyncio.run(check_ssh_configuration())
     elif args.test == 'lifecycle':
-        success = asyncio.run(test_worker_lifecycle())
+        success = asyncio.run(check_worker_lifecycle())
     elif args.test == 'all':
         if args.quick:
             # Run all except lifecycle
             tests = [
-                test_configuration(),
-                test_api_connection(),
-                test_network_volumes(),
-                test_ssh_configuration(),
+                check_configuration(),
+                check_api_connection(),
+                check_network_volumes(),
+                check_ssh_configuration(),
             ]
             results = asyncio.run(asyncio.gather(*tests, return_exceptions=True))
             success = all(r is True for r in results if not isinstance(r, Exception))

@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "timestamp": "2026-03-30T18:03:06Z",
+  "hash": "sha256:c3e8303cbe6f7e92fcb589972768a0e090db54258cc150fed11d669bee4191f6",
+  "questions": [
+    "Should `MACHINES_TO_KEEP_IDLE=0` continue to mean 'keep zero idle buffer' for users who explicitly set it? The fix proposes an implicit minimum of 1 when busy_count > 0. If the user genuinely wants zero idle buffer (cost optimization), this changes behavior. Alternative: raise the default to 1 but respect 0 when explicitly set.",
+    "Is the legacy `control_loop.py` (1654 lines) actively used in production alongside the phase mixins, or is one path dead code? This determines whether Step 7 (syncing fixes to both) is necessary or if we can skip it.",
+    "For the circuit breaker fix (Step 3): should spawn failures have their own separate circuit breaker with a different threshold, or should they simply be excluded from the failure rate entirely? Excluding them means infinite spawn retries against a dead RunPod API.",
+    "Are there any other consumers of `ScalingDecision.workers_to_terminate` or `ScalingDecision.desired_workers` beyond `_execute_scaling()`? Changing these values could affect logging, metrics, or external dashboards."
+  ],
+  "success_criteria": [
+    "With 2 busy + 1 idle workers, MACHINES_TO_KEEP_IDLE=0, MIN_ACTIVE_GPUS=2: the idle worker is NOT terminated (workers_to_terminate=0)",
+    "Idle workers are only terminated through the scaling decision path (_execute_scaling), never through the health check path (_handle_worker_without_active_task)",
+    "The circuit breaker does not trip when spawn failures occur but active workers are healthy \u2014 spawning remains unblocked",
+    "All existing tests pass, plus new tests covering: idle buffer preservation, circuit breaker spawn-failure filtering, no-regression on minimum worker enforcement",
+    "No duplicate RunPod terminate calls for the same worker in a single cycle"
+  ],
+  "assumptions": [
+    "The implicit idle buffer of 1 (when busy_count > 0) is acceptable \u2014 the cost of one extra warm GPU is worth avoiding the spawn-failure cascade",
+    "The legacy control_loop.py is still the production code path and needs the same fixes as the phase mixins",
+    "Workers can be identified as spawn failures by checking for absence of last_heartbeat or promoted_to_active_at metadata",
+    "The overcapacity_idle_timeout_sec (30s) default is fine to keep \u2014 the real fix is ensuring idle workers aren't classified as over-capacity in the first place",
+    "CycleSummary is the right place to track terminated_this_cycle since it's already threaded through all phases"
+  ],
+  "structure_warnings": []
+}
