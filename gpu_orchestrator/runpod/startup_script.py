@@ -12,8 +12,8 @@ _TEMPLATE_BODY = _TEMPLATE_PATH.read_text(encoding="utf-8")
 _WORKDIR_DISCOVERY_SNIPPET = dedent(
     """
     WORKSPACE_DIR="/workspace"
-    PRIMARY_DIR="$WORKSPACE_DIR/Headless-Wan2GP"
-    FALLBACK_DIR="$WORKSPACE_DIR/Reigh-Worker"
+    PRIMARY_DIR="$WORKSPACE_DIR/Reigh-Worker"
+    FALLBACK_DIR="$WORKSPACE_DIR/Headless-Wan2GP"
     if [ -d "$PRIMARY_DIR" ]; then
         WORKDIR="$PRIMARY_DIR"
     elif [ -d "$FALLBACK_DIR" ]; then
@@ -23,6 +23,10 @@ _WORKDIR_DISCOVERY_SNIPPET = dedent(
     fi
     """
 ).strip()
+
+STARTUP_PHASE_SEQUENCE = ("deps_installing", "deps_verified", "worker_starting", "ready")
+STRICT_STARTUP_PHASE = STARTUP_PHASE_SEQUENCE[0]
+STRICT_STARTUP_PHASE_ATTEMPTS = 3
 
 
 def _escape_for_double_quotes(value: str) -> str:
@@ -114,6 +118,9 @@ def build_startup_status_check_command(worker_id: str) -> str:
 
 
 __all__ = [
+    "STARTUP_PHASE_SEQUENCE",
+    "STRICT_STARTUP_PHASE",
+    "STRICT_STARTUP_PHASE_ATTEMPTS",
     "build_create_script_command",
     "build_launch_command",
     "build_log_retrieval_command",

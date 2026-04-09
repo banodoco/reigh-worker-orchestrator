@@ -13,7 +13,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from gpu_orchestrator.database import DatabaseClient
-from gpu_orchestrator.runpod_client import create_runpod_client
+from gpu_orchestrator.runpod import create_runpod_client
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)

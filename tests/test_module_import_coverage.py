@@ -1,5 +1,6 @@
 """Static import map for module coverage tracking."""
 
+import importlib
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -52,3 +53,24 @@ if TYPE_CHECKING:
 def test_import_map_smoke() -> None:
     """Smoke assertion so quality heuristics treat this as a real test."""
     assert True
+
+
+def test_runpod_cutover_modules_import_at_runtime() -> None:
+    """Import the RunPod cutover modules to catch broken script/module imports."""
+    module_names = [
+        "gpu_orchestrator.control_loop",
+        "gpu_orchestrator.runpod_client",
+        "gpu_orchestrator.logging_config",
+        "api_orchestrator.logging_config",
+        "scripts.debug.services.workers",
+        "scripts.debug.commands.storage",
+        "scripts.shutdown_all_workers",
+        "scripts.spawn_gpu",
+        "scripts.ssh_to_worker",
+        "scripts.terminate_single_worker",
+        "scripts.test_runpod",
+        "scripts.spot_instance_lifetime_test",
+    ]
+
+    for module_name in module_names:
+        assert importlib.import_module(module_name) is not None

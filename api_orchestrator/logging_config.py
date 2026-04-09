@@ -36,7 +36,7 @@ _ORCHESTRATOR_LOGGERS = [
     "gpu_orchestrator",
     "gpu_orchestrator.control_loop",
     "gpu_orchestrator.database",
-    "gpu_orchestrator.runpod_client",
+    "gpu_orchestrator.runpod",
     "__main__",
 ]
 

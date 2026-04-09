@@ -148,7 +148,7 @@ def run(client: DebugClient, options: dict) -> None:
     print("=" * 80)
 
     try:
-        from gpu_orchestrator.runpod_client import create_runpod_client, get_network_volumes
+        from gpu_orchestrator.runpod import create_runpod_client, get_network_volumes
 
         runpod_client = create_runpod_client()
         volumes = get_network_volumes(runpod_client.api_key)

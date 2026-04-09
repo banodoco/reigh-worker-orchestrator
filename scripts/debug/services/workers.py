@@ -7,7 +7,7 @@ from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any, Dict
 
-from gpu_orchestrator.runpod_client import create_runpod_client
+from gpu_orchestrator.runpod import create_runpod_client
 from scripts.debug.models import WorkerInfo, WorkersSummary
 
 logger = logging.getLogger(__name__)

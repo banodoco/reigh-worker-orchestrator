@@ -41,6 +41,105 @@ trap 'echo "❌ SCRIPT FAILED at line $LINENO with exit code $? at $(date -Iseco
       echo "--- tail $APT_INSTALL_LOG"; tail -200 "$APT_INSTALL_LOG" 2>/dev/null || true; \
       exit 1' ERR
 
+# Signal startup phase to orchestrator via Supabase REST.
+# Reads current metadata, merges in startup_phase, writes back.
+# The orchestrator reads metadata.startup_phase to distinguish
+# "still setting up" from "ready but not claiming".
+update_worker_phase_strict() {
+    local phase="$1"
+    local key="$SUPABASE_SERVICE_ROLE_KEY"
+    local current_body_file patch_body_file merged payload_status current_status
+
+    if [ -z "$key" ]; then
+        echo "❌ Cannot record startup phase '$phase': SUPABASE_SERVICE_ROLE_KEY is missing"
+        return 1
+    fi
+
+    current_body_file=$(mktemp) || return 1
+    patch_body_file=$(mktemp) || {
+        rm -f "$current_body_file"
+        return 1
+    }
+
+    if ! current_status=$(curl -sS -m 5 \
+        --output "$current_body_file" \
+        --write-out '%{http_code}' \
+        "${SUPABASE_URL}/rest/v1/workers?id=eq.${WORKER_ID}&select=metadata" \
+        -H "Authorization: Bearer $key" \
+        -H "apikey: $key" 2>/dev/null); then
+        echo "❌ Failed to fetch worker metadata for startup phase '$phase'"
+        rm -f "$current_body_file" "$patch_body_file"
+        return 1
+    fi
+
+    if [ "$current_status" != "200" ]; then
+        echo "❌ Metadata fetch for startup phase '$phase' returned HTTP $current_status"
+        cat "$current_body_file" 2>/dev/null || true
+        rm -f "$current_body_file" "$patch_body_file"
+        return 1
+    fi
+
+    if ! merged=$(python3 -c "
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as handle:
+    rows = json.load(handle)
+meta = rows[0].get('metadata', {}) if rows else {}
+meta['startup_phase'] = sys.argv[2]
+print(json.dumps({'metadata': meta}))
+" "$current_body_file" "$phase" 2>/dev/null); then
+        echo "❌ Failed to merge startup phase '$phase' into worker metadata"
+        rm -f "$current_body_file" "$patch_body_file"
+        return 1
+    fi
+
+    printf '%s' "$merged" > "$patch_body_file"
+    if ! payload_status=$(curl -sS -m 5 -X PATCH \
+        --output /dev/null \
+        --write-out '%{http_code}' \
+        "${SUPABASE_URL}/rest/v1/workers?id=eq.${WORKER_ID}" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $key" \
+        -H "apikey: $key" \
+        -H "Prefer: return=minimal" \
+        --data-binary "@$patch_body_file" 2>/dev/null); then
+        echo "❌ Failed to PATCH startup phase '$phase'"
+        rm -f "$current_body_file" "$patch_body_file"
+        return 1
+    fi
+
+    rm -f "$current_body_file" "$patch_body_file"
+
+    if [ "$payload_status" != "204" ]; then
+        echo "❌ Startup phase '$phase' PATCH returned HTTP $payload_status"
+        return 1
+    fi
+
+    echo "📡 Phase: $phase"
+}
+
+update_worker_phase() {
+    local phase="$1"
+    if ! update_worker_phase_strict "$phase"; then
+        echo "⚠️  Failed to record startup phase '$phase'; continuing"
+    fi
+    return 0
+}
+
+record_initial_deps_installing_or_exit() {
+    local attempt
+    for attempt in 1 2 3; do
+        if update_worker_phase_strict "deps_installing"; then
+            return 0
+        fi
+        echo "⚠️  deps_installing PATCH failed (attempt $attempt/3)"
+        if [ "$attempt" -lt 3 ]; then
+            sleep 2
+        fi
+    done
+    echo "❌ Unable to record initial deps_installing startup phase after 3 attempts; aborting startup"
+    exit 1
+}
+
 # Apt helper with timeouts/retries (prevents indefinite hangs)
 apt_retry() {
     local name="$1"
@@ -67,19 +166,19 @@ apt_retry() {
 
 # Pick worker repo directory (supports both legacy + renamed repo)
 WORKSPACE_DIR="/workspace"
-PRIMARY_DIR="$WORKSPACE_DIR/Headless-Wan2GP"
-FALLBACK_DIR="$WORKSPACE_DIR/Reigh-Worker"
+PRIMARY_DIR="$WORKSPACE_DIR/Reigh-Worker"
+FALLBACK_DIR="$WORKSPACE_DIR/Headless-Wan2GP"
 
 if [ -d "$PRIMARY_DIR" ]; then
     WORKDIR="$PRIMARY_DIR"
     echo "✅ Using worker directory: $WORKDIR"
 elif [ -d "$FALLBACK_DIR" ]; then
     WORKDIR="$FALLBACK_DIR"
-    echo "⚠️  Headless-Wan2GP not found; using fallback worker directory: $WORKDIR"
+    echo "⚠️  Reigh-Worker not found; using fallback worker directory: $WORKDIR"
 else
-    echo "📦 Neither Headless-Wan2GP nor Reigh-Worker found. Cloning Headless-Wan2GP into $PRIMARY_DIR..."
+    echo "📦 Neither Reigh-Worker nor Headless-Wan2GP found. Cloning Reigh-Worker into $PRIMARY_DIR..."
     cd "$WORKSPACE_DIR" || exit 1
-    git clone https://github.com/peteromallet/Headless-Wan2GP || exit 1
+    git clone https://github.com/banodoco/Reigh-Worker.git "$PRIMARY_DIR" || exit 1
     WORKDIR="$PRIMARY_DIR"
 fi
 
@@ -105,50 +204,32 @@ apt_retry "apt-get update" 300 bash -lc "apt-get -o Dpkg::Use-Pty=0 -o Acquire::
 apt_retry "apt-get install" 600 bash -lc "apt-get -o Dpkg::Use-Pty=0 -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20 install -y python3.10-venv ffmpeg git curl wget > '$APT_INSTALL_LOG' 2>&1"
 echo "✅ System dependencies installed"
 
-# Check if venv exists, if not create it and install dependencies
-if [ ! -d "venv" ] || [ ! -f "venv/bin/activate" ]; then
-    echo "⚠️  Virtual environment missing or incomplete, building..."
-
-    echo "Creating virtual environment..."
-    python3.10 -m venv venv || exit 1
-
-    echo "Activating venv and installing PyTorch..."
-    source venv/bin/activate || exit 1
-    pip install --no-cache-dir torch==2.6.0 torchvision torchaudio -f https://download.pytorch.org/whl/cu124 || exit 1
-
-    if [ -f Wan2GP/requirements.txt ]; then
-        echo "Installing Wan2GP requirements..."
-        pip install --no-cache-dir -r Wan2GP/requirements.txt || exit 1
+ensure_uv_installed() {
+    if command -v uv >/dev/null 2>&1; then
+        UV_BIN="$(command -v uv)"
+        echo "✅ uv already available at $UV_BIN"
+        return 0
     fi
 
-    echo "Installing worker requirements..."
-    pip install --no-cache-dir -r requirements.txt || exit 1
+    echo "📦 Installing uv via Astral installer..."
+    curl -LsSf https://astral.sh/uv/install.sh | sh || return 1
+    export PATH="$HOME/.local/bin:$PATH"
 
-    echo "✅ Virtual environment build complete"
-else
-    echo "✅ Virtual environment exists, activating..."
-    source venv/bin/activate || exit 1
-
-    # Check if dependencies are installed by testing for a key package
-    if ! python -c "import torch, dotenv" 2>/dev/null; then
-        echo "⚠️  Dependencies missing in venv, installing..."
-
-        echo "Installing PyTorch..."
-        pip install --no-cache-dir torch==2.6.0 torchvision torchaudio -f https://download.pytorch.org/whl/cu124 || exit 1
-
-        if [ -f Wan2GP/requirements.txt ]; then
-            echo "Installing Wan2GP requirements..."
-            pip install --no-cache-dir -r Wan2GP/requirements.txt || exit 1
-        fi
-
-        echo "Installing worker requirements..."
-        pip install --no-cache-dir -r requirements.txt || exit 1
-
-        echo "✅ Dependencies installed"
-    else
-        echo "✅ Dependencies already installed"
+    if command -v uv >/dev/null 2>&1; then
+        UV_BIN="$(command -v uv)"
+        echo "✅ uv installed at $UV_BIN"
+        return 0
     fi
-fi
+
+    if [ -x "$HOME/.local/bin/uv" ]; then
+        UV_BIN="$HOME/.local/bin/uv"
+        echo "✅ uv installed at $UV_BIN"
+        return 0
+    fi
+
+    echo "❌ uv installation failed"
+    return 1
+}
 
 echo "✅ Entering worker directory: $WORKDIR"
 
@@ -169,15 +250,9 @@ BEFORE_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 echo "Before commit: $BEFORE_COMMIT" >> "$LOG_FILE" 2>&1
 
 # Perform pull with timeout and record exit status
-# Use || true to prevent set -e from exiting on failure (divergent branches, conflicts, etc.)
 timeout 30 git pull --ff-only origin main >> "$LOG_FILE" 2>&1 || {
     GIT_PULL_EXIT=$?
-    echo "Git pull failed (exit $GIT_PULL_EXIT), trying git reset --hard to sync with remote..." >> "$LOG_FILE" 2>&1
-    # Reset to remote state to handle divergent branches
-    git fetch origin main >> "$LOG_FILE" 2>&1 || true
-    git reset --hard origin/main >> "$LOG_FILE" 2>&1 || {
-        echo "Git reset also failed, continuing with existing code" >> "$LOG_FILE" 2>&1
-    }
+    echo "Git pull failed (exit $GIT_PULL_EXIT); continuing with existing checkout" >> "$LOG_FILE" 2>&1
 }
 
 # Capture commit after pull to detect if code actually changed
@@ -205,99 +280,50 @@ else
     echo "❌ WARNING: Python 3.10 not found!" >> $LOG_FILE 2>&1
 fi
 
-# Activate virtual environment
-echo "=== ACTIVATING VIRTUAL ENV ===" >> $LOG_FILE 2>&1
-source venv/bin/activate
-echo "Virtual env activated: $VIRTUAL_ENV" >> $LOG_FILE 2>&1
-echo "Python path: $(which python)" >> $LOG_FILE 2>&1
-echo "Python version: $(python --version)" >> $LOG_FILE 2>&1
+# Install or find uv, then migrate and sync on every startup
+record_initial_deps_installing_or_exit
+echo "=== UV BOOTSTRAP ===" >> "$LOG_FILE" 2>&1
+ensure_uv_installed || exit 1
+export PATH="$HOME/.local/bin:$PATH"
+echo "uv path: $UV_BIN" >> "$LOG_FILE" 2>&1
+echo "uv version: $("$UV_BIN" --version)" >> "$LOG_FILE" 2>&1
 
-# Update Python dependencies only if requirements.txt changed (hash-based check)
-echo "=== DEPENDENCY UPDATE (hash-based) ===" >> $LOG_FILE 2>&1
-
-# Compute current hash of requirements files
-MAIN_REQS_HASH=$(md5sum requirements.txt 2>/dev/null | cut -d' ' -f1 || echo "none")
-SUB_REQS_HASH=$(md5sum Wan2GP/requirements.txt 2>/dev/null | cut -d' ' -f1 || echo "none")
-CURRENT_HASH="${MAIN_REQS_HASH}_${SUB_REQS_HASH}"
-
-# Load cached hash (stored in venv to persist across restarts)
-CACHED_HASH=$(cat venv/.requirements_hash 2>/dev/null || echo "")
-
-echo "Current requirements hash: $CURRENT_HASH" >> $LOG_FILE 2>&1
-echo "Cached requirements hash: $CACHED_HASH" >> $LOG_FILE 2>&1
-
-if [ "$CURRENT_HASH" != "$CACHED_HASH" ]; then
-    echo "Requirements changed! Installing new/changed Python deps..." >> $LOG_FILE 2>&1
-    python -m pip install -r requirements.txt >> $LOG_FILE 2>&1 || echo "WARNING: pip install failed" >> $LOG_FILE 2>&1
-
-    # Also install subfolder requirements if present
-    if [ -f Wan2GP/requirements.txt ]; then
-        echo "Installing new/changed deps from Wan2GP/requirements.txt" >> $LOG_FILE 2>&1
-        python -m pip install -r Wan2GP/requirements.txt >> $LOG_FILE 2>&1 || echo "WARNING: subfolder pip install failed" >> $LOG_FILE 2>&1
+echo "=== LEGACY ENV MIGRATION ===" >> "$LOG_FILE" 2>&1
+if [ ! -f ".uv-migrated" ]; then
+    UV_MIGRATION_TS="$(date +%Y%m%d%H%M%S)"
+    if [ -d "venv" ]; then
+        echo "Backing up legacy venv -> venv.pre-uv-$UV_MIGRATION_TS" >> "$LOG_FILE" 2>&1
+        mv "venv" "venv.pre-uv-$UV_MIGRATION_TS"
     fi
-
-    # Save new hash
-    echo "$CURRENT_HASH" > venv/.requirements_hash
-    echo "✅ Dependencies updated, hash saved" >> $LOG_FILE 2>&1
+    if [ -d ".venv" ]; then
+        echo "Backing up legacy .venv -> .venv.pre-uv-$UV_MIGRATION_TS" >> "$LOG_FILE" 2>&1
+        mv ".venv" ".venv.pre-uv-$UV_MIGRATION_TS"
+    fi
 else
-    echo "✅ Requirements unchanged, skipping pip install" >> $LOG_FILE 2>&1
+    echo "✅ .uv-migrated already present; skipping legacy env backup" >> "$LOG_FILE" 2>&1
 fi
 
-# Install all known missing packages from Headless-Wan2GP requirements.txt
-echo "=== INSTALLING CRITICAL PACKAGES ===" >> $LOG_FILE 2>&1
-python -m pip install --quiet \
-    mmgp==3.6.10 \
-    GitPython \
-    smplfitter \
-    s3tokenizer \
-    conformer \
-    >> $LOG_FILE 2>&1 || echo "WARNING: some critical package installs failed" >> $LOG_FILE 2>&1
+echo "=== DEPENDENCY SYNC (uv) ===" >> "$LOG_FILE" 2>&1
+"$UV_BIN" sync --locked --python 3.10 --extra cuda124 >> "$LOG_FILE" 2>&1
+touch .uv-migrated
+echo "✅ uv sync complete; sentinel refreshed" >> "$LOG_FILE" 2>&1
 
-# Validate all critical imports before starting worker
-echo "=== VALIDATING IMPORTS ===" >> $LOG_FILE 2>&1
-python << 'VALIDATE_EOF' >> $LOG_FILE 2>&1
-import sys
-failed = []
+update_worker_phase "deps_verified"
+
+echo "=== VALIDATING IMPORTS ===" >> "$LOG_FILE" 2>&1
+"$UV_BIN" run --python 3.10 python - << 'VALIDATE_EOF' >> "$LOG_FILE" 2>&1
+import importlib
+
 packages = [
-    ('mmgp', 'mmgp'),
-    ('mmgp.fp8_quanto_bridge', 'mmgp'),
-    ('git', 'GitPython'),
-    ('smplfitter', 'smplfitter'),
-    ('s3tokenizer', 's3tokenizer'),
-    ('conformer', 'conformer'),
+    "torch",
+    "dotenv",
+    "fastapi",
 ]
-for mod, pkg in packages:
-    try:
-        __import__(mod)
-        print(f"OK: {mod}")
-    except ImportError as e:
-        print(f"MISSING: {mod} (pip install {pkg})")
-        failed.append(pkg)
 
-if failed:
-    print(f"Missing packages: {', '.join(failed)}")
-    print("Attempting to install...")
-    import subprocess
-    subprocess.run([sys.executable, '-m', 'pip', 'install', '--quiet'] + list(set(failed)))
-    # Re-check
-    still_missing = []
-    for mod, pkg in packages:
-        try:
-            __import__(mod)
-        except ImportError:
-            still_missing.append(pkg)
-    if still_missing:
-        print(f"FATAL: Still missing after install: {', '.join(still_missing)}")
-        sys.exit(1)
-    print("All packages installed successfully on retry")
-else:
-    print("All critical imports validated")
+for mod in packages:
+    importlib.import_module(mod)
+    print(f"OK: {mod}")
 VALIDATE_EOF
-
-if [ $? -ne 0 ]; then
-    echo "❌ Import validation failed!" >> $LOG_FILE 2>&1
-    exit 1
-fi
 
 # Verify worker.py exists
 echo "=== CHECKING FILES ===" >> $LOG_FILE 2>&1
@@ -305,8 +331,8 @@ ls -la worker.py >> $LOG_FILE 2>&1
 
 # Final pre-flight checks before starting worker
 echo "=== PRE-FLIGHT CHECKS ===" >> $LOG_FILE 2>&1
-echo "✅ Virtual env: $VIRTUAL_ENV" >> $LOG_FILE 2>&1
-echo "✅ Python: $(which python) ($(python --version 2>&1))" >> $LOG_FILE 2>&1
+echo "✅ uv: $UV_BIN" >> $LOG_FILE 2>&1
+echo "✅ Python: $("$UV_BIN" run --python 3.10 python --version 2>&1)" >> $LOG_FILE 2>&1
 
 if [ -f worker.py ]; then
     echo "✅ worker.py exists ($(wc -l < worker.py) lines)" >> $LOG_FILE 2>&1
@@ -323,15 +349,28 @@ echo "SUPABASE_SERVICE_ROLE_KEY: ${SUPABASE_SERVICE_ROLE_KEY:0:20}..." >> $LOG_F
 echo "MAX_TASK_WAIT_MINUTES: $MAX_TASK_WAIT_MINUTES" >> $LOG_FILE 2>&1
 
 # Start the actual worker process
+update_worker_phase "worker_starting"
 echo "=== STARTING MAIN WORKER ===" >> $LOG_FILE 2>&1
 PRELOAD_FLAG="__PRELOAD_FLAG__"
-WORKER_CMD="python worker.py --supabase-url $SUPABASE_URL --supabase-access-token $SUPABASE_SERVICE_ROLE_KEY --worker $WORKER_ID --debug $PRELOAD_FLAG --wgp-profile 1"
-echo "Command: $WORKER_CMD" >> $LOG_FILE 2>&1
+WORKER_CMD=(
+    "$UV_BIN" run --python 3.10 python worker.py
+    --supabase-url "$SUPABASE_URL"
+    --supabase-access-token "$SUPABASE_SERVICE_ROLE_KEY"
+    --worker "$WORKER_ID"
+    --debug
+    --wgp-profile 1
+)
+if [ -n "$PRELOAD_FLAG" ]; then
+    WORKER_CMD+=($PRELOAD_FLAG)
+fi
+printf 'Command:' >> "$LOG_FILE" 2>&1
+printf ' %q' "${WORKER_CMD[@]}" >> "$LOG_FILE" 2>&1
+echo >> "$LOG_FILE" 2>&1
 echo "Preload model: __PRELOAD_MODE__" >> $LOG_FILE 2>&1
 echo "Starting at: $(date)" >> $LOG_FILE 2>&1
 
 # Start worker in background with comprehensive logging
-nohup $WORKER_CMD >> $LOG_FILE 2>&1 &
+nohup "${WORKER_CMD[@]}" >> "$LOG_FILE" 2>&1 &
 WORKER_PID=$!
 
 echo "✅ Worker process started with PID: $WORKER_PID at $(date)" >> $LOG_FILE 2>&1
@@ -340,6 +379,7 @@ echo "✅ Worker process started with PID: $WORKER_PID at $(date)" >> $LOG_FILE 
 sleep 2
 if kill -0 $WORKER_PID 2>/dev/null; then
     echo "✅ Worker process $WORKER_PID is still running after 2 seconds" >> $LOG_FILE 2>&1
+    update_worker_phase "ready"
 else
     echo "❌ ERROR: Worker process $WORKER_PID died immediately!" >> $LOG_FILE 2>&1
     echo "Exit status was: $?" >> $LOG_FILE 2>&1

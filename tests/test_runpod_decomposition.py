@@ -6,6 +6,7 @@ from typing import Any
 import pytest
 
 import gpu_orchestrator.runpod as runpod_pkg
+import gpu_orchestrator.runpod_client as legacy_runpod_client
 from gpu_orchestrator.runpod import api as api_module
 from gpu_orchestrator.runpod import client as client_module
 from gpu_orchestrator.runpod import lifecycle as lifecycle_module
@@ -152,6 +153,12 @@ def test_runpod_init_create_client_uses_env(monkeypatch):
 
     assert isinstance(client, _DummyClient)
     assert created["api_key"] == "api-key"
+
+
+def test_runpod_client_module_is_a_compatibility_facade():
+    assert legacy_runpod_client.create_runpod_client is runpod_pkg.create_runpod_client
+    assert legacy_runpod_client.get_network_volumes is runpod_pkg.get_network_volumes
+    assert legacy_runpod_client.__all__ == runpod_pkg.__all__
 
 
 def test_ssh_client_requires_connect_before_execute():

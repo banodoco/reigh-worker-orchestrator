@@ -27,7 +27,7 @@ from .worker_state import (
     calculate_scaling_decision_pure,
 )
 from .database import DatabaseClient
-from .runpod_client import create_runpod_client
+from .runpod import create_runpod_client
 from .health_monitor import OrchestratorHealthMonitor
 from .logging_config import set_current_worker
 

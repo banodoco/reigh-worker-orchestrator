@@ -11,7 +11,7 @@ project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
 from dotenv import load_dotenv
-from gpu_orchestrator.runpod_client import create_runpod_client
+from gpu_orchestrator.runpod import create_runpod_client
 
 def ssh_to_worker(runpod_id: str):
     load_dotenv()

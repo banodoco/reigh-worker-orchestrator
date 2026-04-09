@@ -45,7 +45,7 @@ debug.py worker <worker_id> --check-logging
 # Verifies if worker.py actually started
 
 debug.py worker <worker_id> --startup
-# Shows installation/initialization process
+# Shows uv bootstrap, locked sync, and initialization process
 ```
 
 ### "System seems unhealthy"
@@ -103,10 +103,10 @@ All commands use **system_logs** as the primary data source, augmented with curr
 - Use `--json` for scripting/automation
 - Use `--hours N` to adjust time window (default: 24h)
 - Worker diagnostics show pre-termination VRAM, running tasks, pod status
+- Startup logs now include `uv sync --locked --python 3.10 --extra cuda124`, `.uv-migrated`, and any legacy `venv` backup created during first migration
+- Rollback remains explicit: no runtime pip fallback on the migrated branch. Restore the newest `venv.pre-uv-*` or `.venv.pre-uv-*` backup for first-migration failures, or revert the rollout commits before using the old `requirements.txt` setup again.
 - RunPod sync can save serious money by finding orphaned pods
 - Config command is invaluable for debugging timing issues
-
-
 
 
 

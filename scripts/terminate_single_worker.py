@@ -18,7 +18,7 @@ project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
 from gpu_orchestrator.database import DatabaseClient
-from gpu_orchestrator.runpod_client import create_runpod_client
+from gpu_orchestrator.runpod import create_runpod_client
 
 # Set up logging
 logging.basicConfig(
@@ -177,4 +177,3 @@ Examples:
 
 if __name__ == "__main__":
     asyncio.run(main())
-
