@@ -39,14 +39,15 @@ def _derive_state(*, startup_phase=None, last_heartbeat=None):
     )
 
 
-def test_in_startup_phase_set_with_heartbeat():
+def test_in_startup_phase_cleared_once_heartbeating():
+    """Once a worker has a real heartbeat, it's past startup — stale phase metadata is ignored."""
     derived = _derive_state(
         startup_phase="deps_installing",
         last_heartbeat="2026-03-30T00:09:30+00:00",
     )
 
     assert derived.has_heartbeat is True
-    assert derived.in_startup_phase is True
+    assert derived.in_startup_phase is False
     assert derived.lifecycle == WorkerLifecycle.ACTIVE_INITIALIZING
 
 

@@ -158,7 +158,6 @@ def derive_worker_state(
 
     # Ready for tasks flag - explicit signal from worker that it can claim tasks
     ready_for_tasks = metadata.get('ready_for_tasks', False)
-    in_startup_phase = startup_phase in ('deps_installing', 'deps_verified', 'worker_starting', 'ready')
 
     # Heartbeat flags
     # Note: The workers table has DEFAULT NOW() for last_heartbeat, so newly created
@@ -167,6 +166,11 @@ def derive_worker_state(
     heartbeat_since_creation = (last_heartbeat - created_at).total_seconds() if last_heartbeat else None
     has_real_heartbeat = last_heartbeat is not None and heartbeat_since_creation is not None and heartbeat_since_creation > 5
     has_heartbeat = has_real_heartbeat
+
+    # 'ready' means the startup script finished but worker hasn't heartbeated yet.
+    # Once we have a real heartbeat, the worker is past startup regardless of stale phase metadata.
+    _startup_phases = ('deps_installing', 'deps_verified', 'worker_starting', 'ready')
+    in_startup_phase = startup_phase in _startup_phases and not has_real_heartbeat
     heartbeat_is_recent = has_heartbeat and heartbeat_age_sec < config.heartbeat_promotion_threshold_sec
 
     # Determine lifecycle state
