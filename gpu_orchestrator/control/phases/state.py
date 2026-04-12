@@ -45,7 +45,7 @@ class StatePhaseMixin:
                 blocked_deps = totals.get("blocked_by_deps", 0)
                 blocked_settings = totals.get("blocked_by_settings", 0)
 
-                logger.critical(
+                logger.debug(
                     f"TASK COUNT (Cycle #{self.cycle_count}): "
                     f"Scaling={potentially_claimable} "
                     f"(queued_only={queued_only} + capacity_blocked={blocked_capacity}), "
@@ -55,7 +55,7 @@ class StatePhaseMixin:
             else:
                 queued_count = totals.get("queued_only", 0)
                 total_tasks = totals.get("queued_plus_active", 0)
-                logger.critical(
+                logger.debug(
                     f"TASK COUNT (Cycle #{self.cycle_count}): "
                     f"Queued={queued_count}, Active={active_cloud_count}, Total={total_tasks}"
                 )
@@ -68,6 +68,7 @@ class StatePhaseMixin:
             active_cloud_count = total_tasks - queued_count
             logger.warning(f"Fallback returned: {total_tasks} total, {queued_count} queued")
 
+        logger.info(f"Cycle #{self.cycle_count}: scaling={queued_count} active={active_cloud_count}")
         return workers, TaskCounts(queued=queued_count, active_cloud=active_cloud_count, total=total_tasks), detailed_counts
 
     async def _derive_all_worker_states(

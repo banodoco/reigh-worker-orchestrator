@@ -160,6 +160,8 @@ def setup_logging(db_client=None, source_type: str = "orchestrator_gpu"):
 
 def _configure_third_party_loggers():
     """Configure third-party library loggers to reduce noise."""
+    log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+    configured_log_level = getattr(logging, log_level_str, logging.INFO)
     
     # Suppress verbose HTTP request logging from httpx (used by Supabase client)
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -186,7 +188,7 @@ def _configure_third_party_loggers():
         logger = logging.getLogger(logger_name)
         # Don't override if already explicitly set
         if logger.level == logging.NOTSET:
-            logger.setLevel(logging.INFO)
+            logger.setLevel(configured_log_level)
 
 
 # ---------------------------------------------------------------------------

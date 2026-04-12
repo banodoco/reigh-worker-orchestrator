@@ -67,7 +67,7 @@ class WorkerCapacityPhaseMixin:
                         logger.info(f"Terminated idle worker {worker['id']} (idle > {dynamic_timeout}s)")
 
         if decision.should_scale_up:
-            logger.critical(
+            logger.info(
                 f"SCALING UP: Spawning {decision.workers_to_spawn} workers "
                 f"(current: {decision.current_capacity}, desired: {decision.desired_workers})"
             )
@@ -77,7 +77,7 @@ class WorkerCapacityPhaseMixin:
                 active_tasks = detailed_counts.get("active_tasks", [])
 
                 if queued_tasks:
-                    logger.info(f"QUEUED TASKS triggering scale-up ({len(queued_tasks)} tasks):")
+                    logger.debug(f"QUEUED TASKS triggering scale-up ({len(queued_tasks)} tasks):")
                     for i, task in enumerate(queued_tasks[:10], 1):
                         task_id = task.get("task_id", "unknown")[:8]
                         task_type = task.get("task_type", "unknown")
@@ -85,16 +85,16 @@ class WorkerCapacityPhaseMixin:
                         created_at = task.get("created_at", "unknown")
                         if created_at != "unknown":
                             created_at = created_at[11:19] if len(created_at) > 19 else created_at
-                        logger.info(
+                        logger.debug(
                             f"   {i}. {task_id}... | {task_type:25} | "
                             f"user: {user_id} | created: {created_at}"
                         )
 
                     if len(queued_tasks) > 10:
-                        logger.info(f"   ... and {len(queued_tasks) - 10} more queued tasks")
+                        logger.debug(f"   ... and {len(queued_tasks) - 10} more queued tasks")
 
                 if active_tasks:
-                    logger.info(f"ACTIVE TASKS currently being processed ({len(active_tasks)} tasks):")
+                    logger.debug(f"ACTIVE TASKS currently being processed ({len(active_tasks)} tasks):")
                     for i, task in enumerate(active_tasks[:5], 1):
                         task_id = task.get("task_id", "unknown")[:8]
                         task_type = task.get("task_type", "unknown")
@@ -102,20 +102,20 @@ class WorkerCapacityPhaseMixin:
                         started_at = task.get("started_at", "unknown")
                         if started_at != "unknown":
                             started_at = started_at[11:19] if len(started_at) > 19 else started_at
-                        logger.info(
+                        logger.debug(
                             f"   {i}. {task_id}... | {task_type:25} | "
                             f"worker: {worker_id} | started: {started_at}"
                         )
 
                     if len(active_tasks) > 5:
-                        logger.info(f"   ... and {len(active_tasks) - 5} more active tasks")
+                        logger.debug(f"   ... and {len(active_tasks) - 5} more active tasks")
 
-            print(f"\nSCALING UP: Creating {decision.workers_to_spawn} new workers\n", file=sys.stderr)
+            logger.debug(f"SCALING UP: Creating {decision.workers_to_spawn} new workers")
 
             for i in range(decision.workers_to_spawn):
                 if await self._spawn_worker(queued_count=task_counts.queued):
                     summary.workers_spawned += 1
-                    logger.critical(f"Worker {i + 1}/{decision.workers_to_spawn} spawned successfully")
+                    logger.info(f"Worker {i + 1}/{decision.workers_to_spawn} spawned successfully")
                 else:
                     logger.error(f"Failed to spawn worker {i + 1}/{decision.workers_to_spawn}")
 

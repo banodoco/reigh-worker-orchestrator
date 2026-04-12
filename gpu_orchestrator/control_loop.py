@@ -99,12 +99,7 @@ class OrchestratorControlLoop:
         except Exception:
             pass
 
-        # Visual separator for continuous mode
-        print("\n" + "=" * 80)
-        print(f"ORCHESTRATOR CYCLE #{self.cycle_count}")
-        print("=" * 80 + "\n")
-
-        logger.info("Starting orchestrator cycle")
+        logger.debug("=== ORCHESTRATOR CYCLE #%s ===", self.cycle_count)
 
         summary = CycleSummary()
 
@@ -145,7 +140,7 @@ class OrchestratorControlLoop:
 
         # Phase 11: Log summary
         cycle_duration = (datetime.now(timezone.utc) - cycle_start).total_seconds()
-        logger.info(f"Orchestrator cycle completed in {cycle_duration:.2f}s: {summary.to_dict()['actions']}")
+        logger.debug(f"Orchestrator cycle completed in {cycle_duration:.2f}s: {summary.to_dict()['actions']}")
 
         # Health monitoring
         total_workers = len([ws for ws in worker_states if not ws.is_terminal]) if 'worker_states' in dir() else 0
@@ -199,15 +194,20 @@ class OrchestratorControlLoop:
                 blocked_deps = totals.get('blocked_by_deps', 0)
                 blocked_settings = totals.get('blocked_by_settings', 0)
                 
-                logger.critical(f"TASK COUNT (Cycle #{self.cycle_count}): "
-                              f"Scaling={potentially_claimable} (queued_only={queued_only} + capacity_blocked={blocked_capacity}), "
-                              f"Active={active_cloud_count}, "
-                              f"[NOT scaling for: deps_blocked={blocked_deps}, settings_blocked={blocked_settings}]")
+                logger.debug(
+                    f"TASK COUNT (Cycle #{self.cycle_count}): "
+                    f"Scaling={potentially_claimable} (queued_only={queued_only} + capacity_blocked={blocked_capacity}), "
+                    f"Active={active_cloud_count}, "
+                    f"[NOT scaling for: deps_blocked={blocked_deps}, settings_blocked={blocked_settings}]"
+                )
             else:
                 # Legacy edge function - fall back to queued_only
                 queued_count = totals.get('queued_only', 0)
                 total_tasks = totals.get('queued_plus_active', 0)
-                logger.critical(f"TASK COUNT (Cycle #{self.cycle_count}): Queued={queued_count}, Active={active_cloud_count}, Total={total_tasks}")
+                logger.debug(
+                    f"TASK COUNT (Cycle #{self.cycle_count}): "
+                    f"Queued={queued_count}, Active={active_cloud_count}, Total={total_tasks}"
+                )
             
             self._log_detailed_task_breakdown(detailed_counts, queued_count, active_cloud_count, total_tasks)
         else:
@@ -217,19 +217,16 @@ class OrchestratorControlLoop:
             active_cloud_count = total_tasks - queued_count
             logger.warning(f"Fallback returned: {total_tasks} total, {queued_count} queued")
 
+        logger.info(f"Cycle #{self.cycle_count}: scaling={queued_count} active={active_cloud_count}")
         return workers, TaskCounts(queued=queued_count, active_cloud=active_cloud_count, total=total_tasks), detailed_counts
 
     def _log_detailed_task_breakdown(self, detailed_counts: Dict, scaling_queued: int, active: int, total: int):
         """Log detailed task breakdown for debugging."""
-        import sys
-        
         totals = detailed_counts.get('totals', {})
         
         # Check if new breakdown fields are available
         potentially_claimable = totals.get('potentially_claimable')
-        
-        print(f"\n{'=' * 80}", file=sys.stderr)
-        print(f"ORCHESTRATOR CYCLE #{self.cycle_count} - TASK COUNT", file=sys.stderr)
+        logger.debug(f"ORCHESTRATOR CYCLE #{self.cycle_count} - TASK COUNT")
         
         if potentially_claimable is not None:
             # New breakdown available
@@ -238,18 +235,22 @@ class OrchestratorControlLoop:
             blocked_deps = totals.get('blocked_by_deps', 0)
             blocked_settings = totals.get('blocked_by_settings', 0)
             
-            print(f"  For scaling: {scaling_queued} (queued_only={queued_only} + blocked_by_capacity={blocked_capacity})", file=sys.stderr)
-            print(f"  Active (cloud): {active}", file=sys.stderr)
-            print(f"  NOT scaling for: blocked_by_deps={blocked_deps}, blocked_by_settings={blocked_settings}", file=sys.stderr)
+            logger.debug(
+                f"  For scaling: {scaling_queued} "
+                f"(queued_only={queued_only} + blocked_by_capacity={blocked_capacity})"
+            )
+            logger.debug(f"  Active (cloud): {active}")
+            logger.debug(
+                f"  NOT scaling for: blocked_by_deps={blocked_deps}, "
+                f"blocked_by_settings={blocked_settings}"
+            )
         else:
             # Legacy format
-            print(f"  Queued only: {scaling_queued}", file=sys.stderr)
-            print(f"  Active (cloud): {active}", file=sys.stderr)
-            print(f"  Total workload: {total}", file=sys.stderr)
-        
-        print(f"{'=' * 80}\n", file=sys.stderr)
+            logger.debug(f"  Queued only: {scaling_queued}")
+            logger.debug(f"  Active (cloud): {active}")
+            logger.debug(f"  Total workload: {total}")
 
-        logger.info("DETAILED TASK BREAKDOWN:")
+        logger.debug("DETAILED TASK BREAKDOWN:")
         
         if potentially_claimable is not None:
             queued_only = totals.get('queued_only', 0)  # Claimable right now
@@ -257,30 +258,30 @@ class OrchestratorControlLoop:
             blocked_deps = totals.get('blocked_by_deps', 0)
             blocked_settings = totals.get('blocked_by_settings', 0)
             
-            logger.info(f"   Queued only (claimable now): {queued_only}")
-            logger.info(f"   Blocked by capacity (scaling): {blocked_capacity}")
-            logger.info(f"   Blocked by dependencies (NOT scaling): {blocked_deps}")
-            logger.info(f"   Blocked by settings (NOT scaling): {blocked_settings}")
-            logger.info(f"   --> For scaling: {scaling_queued}")
+            logger.debug(f"   Queued only (claimable now): {queued_only}")
+            logger.debug(f"   Blocked by capacity (scaling): {blocked_capacity}")
+            logger.debug(f"   Blocked by dependencies (NOT scaling): {blocked_deps}")
+            logger.debug(f"   Blocked by settings (NOT scaling): {blocked_settings}")
+            logger.debug(f"   --> For scaling: {scaling_queued}")
         else:
-            logger.info(f"   Queued only: {scaling_queued}")
+            logger.debug(f"   Queued only: {scaling_queued}")
         
-        logger.info(f"   Active (cloud-claimed): {active}")
-        logger.info(f"   Total for scaling: {total}")
+        logger.debug(f"   Active (cloud-claimed): {active}")
+        logger.debug(f"   Total for scaling: {total}")
 
         if 'global_task_breakdown' in detailed_counts:
             breakdown = detailed_counts['global_task_breakdown']
-            logger.info(f"   In Progress (total): {breakdown.get('in_progress_total', 0)}")
-            logger.info(f"   In Progress (cloud): {breakdown.get('in_progress_cloud', 0)}")
-            logger.info(f"   In Progress (local): {breakdown.get('in_progress_local', 0)}")
-            logger.info(f"   Orchestrator tasks: {breakdown.get('orchestrator_tasks', 0)}")
+            logger.debug(f"   In Progress (total): {breakdown.get('in_progress_total', 0)}")
+            logger.debug(f"   In Progress (cloud): {breakdown.get('in_progress_cloud', 0)}")
+            logger.debug(f"   In Progress (local): {breakdown.get('in_progress_local', 0)}")
+            logger.debug(f"   Orchestrator tasks: {breakdown.get('orchestrator_tasks', 0)}")
 
         users = detailed_counts.get('users', [])
         if users:
-            logger.info(f"   Users with tasks: {len(users)}")
+            logger.debug(f"   Users with tasks: {len(users)}")
             at_limit_users = [u for u in users if u.get('at_limit', False)]
             if at_limit_users:
-                logger.info(f"   Users at concurrency limit: {len(at_limit_users)}")
+                logger.debug(f"   Users at concurrency limit: {len(at_limit_users)}")
 
     # =========================================================================
     # PHASE 2: Derive state for all workers
@@ -859,45 +860,52 @@ class OrchestratorControlLoop:
 
     def _log_scaling_decision(self, decision: ScalingDecision, task_counts: TaskCounts):
         """Log scaling decision details."""
-        import sys
-
-        logger.critical(f"SCALING DECISION (Cycle #{self.cycle_count}): Current={decision.active_count}+{decision.spawning_count}, Desired={decision.desired_workers}")
-        logger.info("SCALING DECISION ANALYSIS:")
-        logger.info(f"   Task-based: {decision.task_based_workers} workers (workload: {task_counts.total_workload})")
-        logger.info(f"   Buffer-based: {decision.buffer_based_workers} workers (busy: {decision.busy_count}, buffer: {self.config.machines_to_keep_idle})")
-        logger.info(f"   Min-based: {decision.min_based_workers} workers")
-        logger.info(f"   FINAL DESIRED: {decision.desired_workers} workers")
-        logger.info(f"   Current: {decision.idle_count} idle + {decision.busy_count} busy = {decision.active_count} active, {decision.spawning_count} spawning")
-        logger.info(f"   Failure rate check: {'PASS' if decision.failure_rate_ok else 'FAIL (blocking scale-up)'}")
+        logger.debug(
+            f"SCALING DECISION (Cycle #{self.cycle_count}): "
+            f"Current={decision.active_count}+{decision.spawning_count}, Desired={decision.desired_workers}"
+        )
+        logger.debug("SCALING DECISION ANALYSIS:")
+        logger.debug(f"   Task-based: {decision.task_based_workers} workers (workload: {task_counts.total_workload})")
+        logger.debug(f"   Buffer-based: {decision.buffer_based_workers} workers (busy: {decision.busy_count}, buffer: {self.config.machines_to_keep_idle})")
+        logger.debug(f"   Min-based: {decision.min_based_workers} workers")
+        logger.debug(f"   FINAL DESIRED: {decision.desired_workers} workers")
+        logger.debug(f"   Current: {decision.idle_count} idle + {decision.busy_count} busy = {decision.active_count} active, {decision.spawning_count} spawning")
+        logger.debug(f"   Failure rate check: {'PASS' if decision.failure_rate_ok else 'FAIL (blocking scale-up)'}")
 
         # Log new scaling logic breakdown if using new logic
         if self.config.use_new_scaling_logic:
-            logger.info("   NEW SCALING LOGIC:")
-            logger.info(f"     Queued tasks: {task_counts.queued}")
-            logger.info(f"     Workers covering tasks: {decision.workers_covering_tasks} (idle + spawning)")
-            logger.info(f"     Uncovered tasks: {decision.uncovered_tasks}")
-            logger.info(f"     Spawn for tasks: {decision.spawn_reason_tasks}")
-            logger.info(f"     Spawn for floor: {decision.spawn_reason_floor}")
+            logger.debug("   NEW SCALING LOGIC:")
+            logger.debug(f"     Queued tasks: {task_counts.queued}")
+            logger.debug(f"     Workers covering tasks: {decision.workers_covering_tasks} (idle + spawning)")
+            logger.debug(f"     Uncovered tasks: {decision.uncovered_tasks}")
+            logger.debug(f"     Spawn for tasks: {decision.spawn_reason_tasks}")
+            logger.debug(f"     Spawn for floor: {decision.spawn_reason_floor}")
 
-        print(f"\n{'=' * 80}", file=sys.stderr)
-        print(f"SCALING DECISION (Cycle #{self.cycle_count})", file=sys.stderr)
-        print(f"  Tasks: {task_counts.queued} queued + {task_counts.active_cloud} active = {task_counts.total_workload} total", file=sys.stderr)
-        print(f"  Current: {decision.active_count} active + {decision.spawning_count} spawning = {decision.current_capacity} total", file=sys.stderr)
+        logger.debug(
+            f"SCALING DECISION (Cycle #{self.cycle_count}) | "
+            f"Tasks={task_counts.queued}+{task_counts.active_cloud}=>{task_counts.total_workload} | "
+            f"Current={decision.active_count}+{decision.spawning_count}=>{decision.current_capacity}"
+        )
 
         # Show new breakdown for stderr output
         if self.config.use_new_scaling_logic:
-            print(f"  Task coverage: {decision.workers_covering_tasks} workers can cover {task_counts.queued} queued ({decision.uncovered_tasks} uncovered)", file=sys.stderr)
-            print(f"  Spawn breakdown: {decision.spawn_reason_tasks} for tasks + {decision.spawn_reason_floor} for floor = {decision.workers_to_spawn} total", file=sys.stderr)
+            logger.debug(
+                f"  Task coverage: {decision.workers_covering_tasks} workers can cover "
+                f"{task_counts.queued} queued ({decision.uncovered_tasks} uncovered)"
+            )
+            logger.debug(
+                f"  Spawn breakdown: {decision.spawn_reason_tasks} for tasks + "
+                f"{decision.spawn_reason_floor} for floor = {decision.workers_to_spawn} total"
+            )
         else:
-            print(f"  Desired: {decision.desired_workers} workers", file=sys.stderr)
+            logger.debug(f"  Desired: {decision.desired_workers} workers")
 
         if decision.should_scale_up:
-            print(f"  Decision: SCALE UP by {decision.workers_to_spawn}", file=sys.stderr)
+            logger.debug(f"  Decision: SCALE UP by {decision.workers_to_spawn}")
         elif decision.should_scale_down:
-            print(f"  Decision: SCALE DOWN by {decision.workers_to_terminate}", file=sys.stderr)
+            logger.debug(f"  Decision: SCALE DOWN by {decision.workers_to_terminate}")
         else:
-            print("  Decision: MAINTAIN (at capacity)", file=sys.stderr)
-        print(f"{'=' * 80}\n", file=sys.stderr)
+            logger.debug("  Decision: MAINTAIN (at capacity)")
 
     # =========================================================================
     # PHASE 9: Execute scaling
@@ -952,7 +960,10 @@ class OrchestratorControlLoop:
 
         # Scale up: spawn new workers
         if decision.should_scale_up:
-            logger.critical(f"SCALING UP: Spawning {decision.workers_to_spawn} workers (current: {decision.current_capacity}, desired: {decision.desired_workers})")
+            logger.info(
+                f"SCALING UP: Spawning {decision.workers_to_spawn} workers "
+                f"(current: {decision.current_capacity}, desired: {decision.desired_workers})"
+            )
 
             # Log detailed task information that triggered the scale-up
             if detailed_counts:
@@ -960,7 +971,7 @@ class OrchestratorControlLoop:
                 active_tasks = detailed_counts.get('active_tasks', [])
 
                 if queued_tasks:
-                    logger.info(f"QUEUED TASKS triggering scale-up ({len(queued_tasks)} tasks):")
+                    logger.debug(f"QUEUED TASKS triggering scale-up ({len(queued_tasks)} tasks):")
                     for i, task in enumerate(queued_tasks[:10], 1):
                         task_id = task.get('task_id', 'unknown')[:8]
                         task_type = task.get('task_type', 'unknown')
@@ -968,13 +979,13 @@ class OrchestratorControlLoop:
                         created_at = task.get('created_at', 'unknown')
                         if created_at != 'unknown':
                             created_at = created_at[11:19] if len(created_at) > 19 else created_at
-                        logger.info(f"   {i}. {task_id}... | {task_type:25} | user: {user_id} | created: {created_at}")
+                        logger.debug(f"   {i}. {task_id}... | {task_type:25} | user: {user_id} | created: {created_at}")
 
                     if len(queued_tasks) > 10:
-                        logger.info(f"   ... and {len(queued_tasks) - 10} more queued tasks")
+                        logger.debug(f"   ... and {len(queued_tasks) - 10} more queued tasks")
 
                 if active_tasks:
-                    logger.info(f"ACTIVE TASKS currently being processed ({len(active_tasks)} tasks):")
+                    logger.debug(f"ACTIVE TASKS currently being processed ({len(active_tasks)} tasks):")
                     for i, task in enumerate(active_tasks[:5], 1):
                         task_id = task.get('task_id', 'unknown')[:8]
                         task_type = task.get('task_type', 'unknown')
@@ -982,18 +993,17 @@ class OrchestratorControlLoop:
                         started_at = task.get('started_at', 'unknown')
                         if started_at != 'unknown':
                             started_at = started_at[11:19] if len(started_at) > 19 else started_at
-                        logger.info(f"   {i}. {task_id}... | {task_type:25} | worker: {worker_id} | started: {started_at}")
+                        logger.debug(f"   {i}. {task_id}... | {task_type:25} | worker: {worker_id} | started: {started_at}")
 
                     if len(active_tasks) > 5:
-                        logger.info(f"   ... and {len(active_tasks) - 5} more active tasks")
+                        logger.debug(f"   ... and {len(active_tasks) - 5} more active tasks")
 
-            import sys
-            print(f"\nSCALING UP: Creating {decision.workers_to_spawn} new workers\n", file=sys.stderr)
+            logger.debug(f"SCALING UP: Creating {decision.workers_to_spawn} new workers")
 
             for i in range(decision.workers_to_spawn):
                 if await self._spawn_worker(queued_count=task_counts.queued):
                     summary.workers_spawned += 1
-                    logger.critical(f"Worker {i + 1}/{decision.workers_to_spawn} spawned successfully")
+                    logger.info(f"Worker {i + 1}/{decision.workers_to_spawn} spawned successfully")
                 else:
                     logger.error(f"Failed to spawn worker {i + 1}/{decision.workers_to_spawn}")
 
