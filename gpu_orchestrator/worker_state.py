@@ -158,7 +158,7 @@ def derive_worker_state(
 
     # Ready for tasks flag - explicit signal from worker that it can claim tasks
     ready_for_tasks = metadata.get('ready_for_tasks', False)
-    in_startup_phase = startup_phase in ('deps_installing', 'deps_verified', 'worker_starting')
+    in_startup_phase = startup_phase in ('deps_installing', 'deps_verified', 'worker_starting', 'ready')
 
     # Heartbeat flags
     # Note: The workers table has DEFAULT NOW() for last_heartbeat, so newly created

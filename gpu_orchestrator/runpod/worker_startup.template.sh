@@ -13,6 +13,10 @@ export MAX_TASK_WAIT_MINUTES="__MAX_TASK_WAIT_MINUTES__"
 # Non-interactive apt
 export DEBIAN_FRONTEND=noninteractive
 
+# uv: skip failed hardlink attempts on RunPod volumes, cache on persistent storage
+export UV_LINK_MODE=copy
+export UV_CACHE_DIR=/workspace/.uv-cache
+
 # ------------------------------------------------------------
 # EARLY LOGGING (must exist before any apt/network operations)
 # ------------------------------------------------------------
