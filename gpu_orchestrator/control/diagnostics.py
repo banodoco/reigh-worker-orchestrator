@@ -49,6 +49,7 @@ class WorkerDiagnosticsMixin:
             "gpu_not_detected_timeout_sec": self.config.gpu_not_detected_timeout_sec,
             "gpu_idle_timeout_sec": self.config.gpu_idle_timeout_sec,
             "spawning_timeout_sec": self.config.spawning_timeout_sec,
+            "script_running_timeout_sec": self.config.script_running_timeout_sec,
         }
 
         try:

@@ -21,6 +21,7 @@ def make_config(**overrides) -> OrchestratorConfig:
         "spawning_grace_period_sec": 180,
         "scale_down_grace_period_sec": 60,
         "spawning_timeout_sec": 600,
+        "script_running_timeout_sec": 1800,
         "gpu_idle_timeout_sec": 600,
         "overcapacity_idle_timeout_sec": 30,
         "task_stuck_timeout_sec": 1200,

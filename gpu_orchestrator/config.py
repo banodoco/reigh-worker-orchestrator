@@ -31,6 +31,7 @@ class OrchestratorConfig:
 
     # Worker timeouts (seconds)
     spawning_timeout_sec: int
+    script_running_timeout_sec: int  # Longer timeout for SPAWNING_SCRIPT_RUNNING (install phase)
     gpu_idle_timeout_sec: int
     overcapacity_idle_timeout_sec: int
     task_stuck_timeout_sec: int
@@ -106,6 +107,7 @@ class OrchestratorConfig:
 
             # Worker timeouts
             spawning_timeout_sec=int(os.getenv("SPAWNING_TIMEOUT_SEC", "600")),
+            script_running_timeout_sec=int(os.getenv("SCRIPT_RUNNING_TIMEOUT_SEC", "1800")),
             gpu_idle_timeout_sec=int(os.getenv("GPU_IDLE_TIMEOUT_SEC", "600")),
             overcapacity_idle_timeout_sec=int(os.getenv("GPU_OVERCAPACITY_IDLE_TIMEOUT_SEC", "30")),
             task_stuck_timeout_sec=int(os.getenv("TASK_STUCK_TIMEOUT_SEC", "1200")),
@@ -154,7 +156,7 @@ class OrchestratorConfig:
         logger.info(f"   Scaling: {self.min_active_gpus}-{self.max_active_gpus} GPUs, idle buffer: {self.machines_to_keep_idle}")
         logger.info(f"   Scaling multipliers: up={self.scale_up_multiplier}, down={self.scale_down_multiplier}")
         logger.info(f"   Scaling intervals: min={self.min_scaling_interval_sec}s, spawning_grace={self.spawning_grace_period_sec}s, scale_down_grace={self.scale_down_grace_period_sec}s")
-        logger.info(f"   Worker timeouts: spawning={self.spawning_timeout_sec}s, idle={self.gpu_idle_timeout_sec}s, overcapacity_idle={self.overcapacity_idle_timeout_sec}s")
+        logger.info(f"   Worker timeouts: spawning={self.spawning_timeout_sec}s, script_running={self.script_running_timeout_sec}s, idle={self.gpu_idle_timeout_sec}s, overcapacity_idle={self.overcapacity_idle_timeout_sec}s")
         logger.info(f"   Task timeout: stuck={self.task_stuck_timeout_sec}s")
         logger.info(f"   Health: startup_grace={self.startup_grace_period_sec}s, not_claiming={self.ready_not_claiming_timeout_sec}s, gpu_not_detected={self.gpu_not_detected_timeout_sec}s")
         logger.info(f"   Promotion: heartbeat_threshold={self.heartbeat_promotion_threshold_sec}s")

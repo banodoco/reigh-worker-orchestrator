@@ -195,21 +195,8 @@ def derive_worker_state(
     is_not_claiming = False
     is_stale = False
 
-    # ─── STARTUP PHASE GUARD ───────────────────────────────────────────
-    # Workers signaling a startup phase (deps_installing, deps_verified,
-    # worker_starting) are still setting up. The ONLY timeout that applies
-    # is a 30-min safety net. All other checks are skipped.
-    # This is the single gate — individual timeout paths below do NOT
-    # need to check in_startup_phase.
-    max_startup_phase_sec = 1800
-    if in_startup_phase:
-        if worker_age_sec > max_startup_phase_sec:
-            should_terminate = True
-            termination_reason = f"Startup phase exceeded maximum ({worker_age_sec:.0f}s > {max_startup_phase_sec}s)"
-            error_code = "STARTUP_PHASE_TIMEOUT"
-
-    # ─── NORMAL TIMEOUT CHECKS ─────────────────────────────────────────
-    elif lifecycle == WorkerLifecycle.ACTIVE_STALE:
+    # ─── TIMEOUT CHECKS (per lifecycle state) ────────────────────────────
+    if lifecycle == WorkerLifecycle.ACTIVE_STALE:
         is_stale = True
         if has_active_task:
             should_terminate = True
@@ -253,12 +240,19 @@ def derive_worker_state(
                 error_code = "STARTUP_NEVER_READY"
 
     elif lifecycle in (WorkerLifecycle.SPAWNING_POD_PENDING,
-                       WorkerLifecycle.SPAWNING_SCRIPT_PENDING,
-                       WorkerLifecycle.SPAWNING_SCRIPT_RUNNING):
+                       WorkerLifecycle.SPAWNING_SCRIPT_PENDING):
         if worker_age_sec > config.spawning_timeout_sec:
             should_terminate = True
             termination_reason = f"Spawning timeout ({worker_age_sec:.0f}s)"
             error_code = "SPAWNING_TIMEOUT"
+
+    elif lifecycle == WorkerLifecycle.SPAWNING_SCRIPT_RUNNING:
+        # Script is running (installing deps, building, etc.) — use a longer
+        # timeout since fresh-volume installs can take 10+ minutes.
+        if effective_age_sec > config.script_running_timeout_sec:
+            should_terminate = True
+            termination_reason = f"Script running timeout ({effective_age_sec:.0f}s)"
+            error_code = "SCRIPT_RUNNING_TIMEOUT"
 
     # Should promote?
     # TODO: Add ready_for_tasks check once worker sends it

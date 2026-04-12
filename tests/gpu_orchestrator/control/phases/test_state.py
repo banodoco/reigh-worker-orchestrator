@@ -28,14 +28,14 @@ def _make_worker(*, startup_phase=None, last_heartbeat=None):
     }
 
 
-def _derive_state(*, startup_phase=None, last_heartbeat=None):
+def _derive_state(*, startup_phase=None, last_heartbeat=None, now=None, queued_count=0):
     return derive_worker_state(
         worker=_make_worker(startup_phase=startup_phase, last_heartbeat=last_heartbeat),
         config=make_config(),
-        now=datetime(2026, 3, 30, 0, 10, 0, tzinfo=timezone.utc),
+        now=now or datetime(2026, 3, 30, 0, 10, 0, tzinfo=timezone.utc),
         has_ever_claimed=False,
         has_active_task=False,
-        queued_count=0,
+        queued_count=queued_count,
     )
 
 
@@ -74,3 +74,44 @@ def test_in_startup_phase_false_when_running():
     assert derived.has_heartbeat is True
     assert derived.in_startup_phase is False
     assert derived.lifecycle == WorkerLifecycle.ACTIVE_INITIALIZING
+
+
+def test_script_running_uses_longer_timeout():
+    """SPAWNING_SCRIPT_RUNNING gets script_running_timeout_sec (1800s), not spawning_timeout_sec (600s)."""
+    # At 15 minutes (900s) — past spawning_timeout (600s) but within script_running (1800s)
+    derived = _derive_state(
+        startup_phase="deps_installing",
+        last_heartbeat=None,
+        now=datetime(2026, 3, 30, 0, 15, 0, tzinfo=timezone.utc),
+    )
+
+    assert derived.lifecycle == WorkerLifecycle.SPAWNING_SCRIPT_RUNNING
+    assert derived.should_terminate is False
+
+
+def test_script_running_killed_after_long_timeout():
+    """SPAWNING_SCRIPT_RUNNING is killed after script_running_timeout_sec (1800s)."""
+    # At 35 minutes (2100s) — past script_running_timeout (1800s)
+    derived = _derive_state(
+        startup_phase="deps_installing",
+        last_heartbeat=None,
+        now=datetime(2026, 3, 30, 0, 35, 0, tzinfo=timezone.utc),
+    )
+
+    assert derived.lifecycle == WorkerLifecycle.SPAWNING_SCRIPT_RUNNING
+    assert derived.should_terminate is True
+    assert derived.error_code == "SCRIPT_RUNNING_TIMEOUT"
+
+
+def test_heartbeating_worker_with_stale_ready_phase_not_killed():
+    """A heartbeating worker with startup_phase='ready' must NOT be killed by startup timeout."""
+    # Worker has been alive 40 minutes, heartbeating, startup_phase still "ready"
+    derived = _derive_state(
+        startup_phase="ready",
+        last_heartbeat="2026-03-30T00:39:50+00:00",
+        now=datetime(2026, 3, 30, 0, 40, 0, tzinfo=timezone.utc),
+    )
+
+    assert derived.has_heartbeat is True
+    assert derived.in_startup_phase is False
+    assert derived.should_terminate is False
