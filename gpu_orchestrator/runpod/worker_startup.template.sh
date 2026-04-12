@@ -242,22 +242,24 @@ ls -la >> "$LOG_FILE" 2>&1
 
 echo "Worker ID: $WORKER_ID" >> "$LOG_FILE" 2>&1
 
-# Try git pull (but don't fail if it times out)
-echo "=== GIT PULL ===" >> "$LOG_FILE" 2>&1
+# Force checkout to origin/main regardless of current branch/state.
+# Persistent volumes may have stale feature branches that can't fast-forward.
+echo "=== GIT SYNC ===" >> "$LOG_FILE" 2>&1
 
-# Capture commit before pull
 BEFORE_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-echo "Before commit: $BEFORE_COMMIT" >> "$LOG_FILE" 2>&1
+BEFORE_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+echo "Before: $BEFORE_COMMIT ($BEFORE_BRANCH)" >> "$LOG_FILE" 2>&1
 
-# Perform pull with timeout and record exit status
-timeout 30 git pull --ff-only origin main >> "$LOG_FILE" 2>&1 || {
-    GIT_PULL_EXIT=$?
-    echo "Git pull failed (exit $GIT_PULL_EXIT); continuing with existing checkout" >> "$LOG_FILE" 2>&1
+timeout 30 git fetch origin main >> "$LOG_FILE" 2>&1 || {
+    echo "Git fetch failed (exit $?); continuing with existing checkout" >> "$LOG_FILE" 2>&1
+}
+git checkout main >> "$LOG_FILE" 2>&1 || true
+git reset --hard origin/main >> "$LOG_FILE" 2>&1 || {
+    echo "Git reset failed (exit $?); continuing with existing checkout" >> "$LOG_FILE" 2>&1
 }
 
-# Capture commit after pull to detect if code actually changed
 AFTER_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
-echo "After commit:  $AFTER_COMMIT" >> "$LOG_FILE" 2>&1
+echo "After:  $AFTER_COMMIT (main)" >> "$LOG_FILE" 2>&1
 
 # Verify critical dependencies
 echo "=== VERIFYING DEPENDENCIES ===" >> $LOG_FILE 2>&1
@@ -311,7 +313,7 @@ echo "✅ uv sync complete; sentinel refreshed" >> "$LOG_FILE" 2>&1
 update_worker_phase "deps_verified"
 
 echo "=== VALIDATING IMPORTS ===" >> "$LOG_FILE" 2>&1
-"$UV_BIN" run --python 3.10 python - << 'VALIDATE_EOF' >> "$LOG_FILE" 2>&1
+"$UV_BIN" run --python 3.10 --extra cuda124 python - << 'VALIDATE_EOF' >> "$LOG_FILE" 2>&1
 import importlib
 
 packages = [
@@ -332,7 +334,7 @@ ls -la worker.py >> $LOG_FILE 2>&1
 # Final pre-flight checks before starting worker
 echo "=== PRE-FLIGHT CHECKS ===" >> $LOG_FILE 2>&1
 echo "✅ uv: $UV_BIN" >> $LOG_FILE 2>&1
-echo "✅ Python: $("$UV_BIN" run --python 3.10 python --version 2>&1)" >> $LOG_FILE 2>&1
+echo "✅ Python: $("$UV_BIN" run --python 3.10 --extra cuda124 python --version 2>&1)" >> $LOG_FILE 2>&1
 
 if [ -f worker.py ]; then
     echo "✅ worker.py exists ($(wc -l < worker.py) lines)" >> $LOG_FILE 2>&1
@@ -353,13 +355,15 @@ update_worker_phase "worker_starting"
 echo "=== STARTING MAIN WORKER ===" >> $LOG_FILE 2>&1
 PRELOAD_FLAG="__PRELOAD_FLAG__"
 WORKER_CMD=(
-    "$UV_BIN" run --python 3.10 python worker.py
+    "$UV_BIN" run --python 3.10 --extra cuda124 python worker.py
     --supabase-url "$SUPABASE_URL"
     --supabase-access-token "$SUPABASE_SERVICE_ROLE_KEY"
     --worker "$WORKER_ID"
-    --debug
     --wgp-profile 1
 )
+if [ "${WORKER_DEBUG:-false}" = "true" ]; then
+    WORKER_CMD+=(--debug)
+fi
 if [ -n "$PRELOAD_FLAG" ]; then
     WORKER_CMD+=($PRELOAD_FLAG)
 fi
