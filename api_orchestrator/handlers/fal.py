@@ -313,8 +313,7 @@ async def handle_flux_klein_edit(
 
     fal_args = {
         "prompt": params.get("prompt", ""),
-        "image_url": image_url,
-        "strength": params.get("strength", 0.6),
+        "image_urls": [image_url],
         "image_size": image_size,
         "num_inference_steps": params.get("num_inference_steps", 8),
         "num_images": params.get("num_images", 1),
