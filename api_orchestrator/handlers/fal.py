@@ -330,10 +330,9 @@ async def handle_flux_klein_edit(
         fal_args["negative_prompt"] = negative_prompt
 
     logger.info(
-        "FLUX.2 Klein edit: model=%s image=%s strength=%s steps=%s size=%s",
+        "FLUX.2 Klein edit: model=%s image=%s steps=%s size=%s",
         klein_model,
         image_url,
-        fal_args["strength"],
         fal_args["num_inference_steps"],
         image_size,
     )
