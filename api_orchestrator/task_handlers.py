@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from .handlers.fal import handle_image_upscale, handle_qwen_image, handle_video_enhance, handle_z_image_turbo_i2i
+from .handlers.fal import handle_flux_klein_edit, handle_image_upscale, handle_qwen_image, handle_video_enhance, handle_z_image_turbo_i2i
 from .handlers.image import handle_annotated_image_edit, handle_image_inpaint
 from .handlers.wavespeed import (
     handle_animate_character,
@@ -27,6 +27,7 @@ TASK_HANDLERS = {
     "z_image_turbo": handle_qwen_image,
     "z_image_turbo_i2i": handle_z_image_turbo_i2i,
     "video_enhance": handle_video_enhance,
+    "flux_klein_edit": handle_flux_klein_edit,
 }
 
 SUPPORTED_TASK_TYPES = list(TASK_HANDLERS.keys())

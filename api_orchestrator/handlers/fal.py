@@ -273,6 +273,96 @@ async def handle_z_image_turbo_i2i(
         raise Exception(f"fal.ai {task_type} failed: {str(e)}")
 
 
+async def handle_flux_klein_edit(
+    task: Dict[str, Any],
+    params: Dict[str, Any],
+    client: httpx.AsyncClient
+) -> Dict[str, Any]:
+    """Handle FLUX.2 Klein image edit models via fal.ai API with resilient tracking."""
+    task_id = task.get("task_id") or task.get("id")
+    task_type = task.get("task_type", "flux_klein_edit")
+    klein_model = params.get("klein_model", "flux-klein-9b")
+
+    endpoint = {
+        "flux-klein-4b": "fal-ai/flux-2/klein/4b/edit",
+        "flux-klein-9b": "fal-ai/flux-2/klein/9b/edit",
+    }.get(klein_model, "fal-ai/flux-2/klein/9b/edit")
+
+    logger.info(f"Processing {task_type} task via fal.ai API (resilient mode)")
+    logger.info(f"Using FLUX.2 Klein endpoint: {endpoint}")
+
+    image_url = params.get("image_url") or params.get("image")
+    if not image_url:
+        raise Exception("image_url or image parameter is required for FLUX.2 Klein edit task")
+
+    explicit_image_size = params.get("image_size")
+    if explicit_image_size and explicit_image_size != "auto":
+        image_size = explicit_image_size
+        logger.info(f"Using explicit image_size: {image_size}")
+    else:
+        target_mp = params.get("target_megapixels", 1.0)
+        dimensions = await get_image_dimensions(client, image_url)
+
+        if dimensions:
+            width, height = dimensions
+            image_size = scale_dimensions_to_megapixels(width, height, target_megapixels=target_mp)
+            logger.info(f"Auto-scaled to {image_size['width']}x{image_size['height']} (~{target_mp}MP)")
+        else:
+            image_size = "auto"
+            logger.warning("Could not get input dimensions, falling back to image_size='auto'")
+
+    fal_args = {
+        "prompt": params.get("prompt", ""),
+        "image_url": image_url,
+        "strength": params.get("strength", 0.6),
+        "image_size": image_size,
+        "num_inference_steps": params.get("num_inference_steps", 8),
+        "num_images": params.get("num_images", 1),
+        "enable_safety_checker": params.get("enable_safety_checker", True),
+        "output_format": params.get("output_format", "png"),
+    }
+
+    seed = params.get("seed")
+    if seed is not None:
+        fal_args["seed"] = seed
+
+    negative_prompt = params.get("negative_prompt", "")
+    if negative_prompt:
+        fal_args["negative_prompt"] = negative_prompt
+
+    logger.info(
+        "FLUX.2 Klein edit: model=%s image=%s strength=%s steps=%s size=%s",
+        klein_model,
+        image_url,
+        fal_args["strength"],
+        fal_args["num_inference_steps"],
+        image_size,
+    )
+
+    try:
+        existing_tracking = await get_fal_tracking(task_id)
+        if existing_tracking:
+            logger.info(f"Found existing request: {existing_tracking.request_id}")
+
+        async def update_metadata(tid: str, data: Dict[str, Any]):
+            return await update_task_metadata(tid, data)
+
+        result = await call_fal_api_resilient(
+            endpoint=endpoint,
+            arguments=fal_args,
+            client=client,
+            task_id=task_id,
+            update_task_metadata=update_metadata,
+            existing_tracking=existing_tracking,
+        )
+        result = await process_external_url_result(client, task_id, result)
+        logger.info(f"Processed {task_type} task via fal.ai API")
+        return result
+    except Exception as e:
+        logger.error(f"fal.ai API call failed: {e}")
+        raise Exception(f"fal.ai {task_type} failed: {str(e)}")
+
+
 async def handle_video_enhance(
     task: Dict[str, Any],
     params: Dict[str, Any],
@@ -483,6 +573,7 @@ async def handle_video_enhance(
 __all__ = [
     "handle_image_upscale",
     "handle_qwen_image",
+    "handle_flux_klein_edit",
     "handle_z_image_turbo_i2i",
     "handle_video_enhance",
 ]
