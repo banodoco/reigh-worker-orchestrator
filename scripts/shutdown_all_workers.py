@@ -45,16 +45,26 @@ class WorkerShutdownManager:
             logger.info("🔍 DRY RUN MODE - No actual changes will be made")
     
     async def get_all_workers(self) -> List[Dict[str, Any]]:
-        """Get all workers regardless of status."""
+        """Get all non-terminated workers.
+
+        Only fetches workers that are still active, spawning, terminating, or in
+        error state.  Previously this fetched every row with no filter, which hit
+        Supabase's default 1000-row limit and silently dropped active workers when
+        the table grew past that threshold.
+        """
         try:
-            # Get all workers from database
-            result = self.db.supabase.table('workers').select('*').execute()
-            
+            result = (
+                self.db.supabase.table('workers')
+                .select('*')
+                .neq('status', 'terminated')
+                .execute()
+            )
+
             workers = []
             for worker in (result.data or []):
                 metadata = worker.get('metadata') or {}
                 orchestrator_status = metadata.get('orchestrator_status', worker['status'])
-                
+
                 mapped_worker = {
                     'id': worker['id'],
                     'instance_type': worker['instance_type'],
@@ -64,9 +74,9 @@ class WorkerShutdownManager:
                     'metadata': metadata
                 }
                 workers.append(mapped_worker)
-            
+
             return workers
-            
+
         except Exception as e:
             logger.error(f"Failed to get workers: {e}")
             return []
@@ -192,14 +202,11 @@ class WorkerShutdownManager:
         workers = await self.get_all_workers()
         processing_tasks = await self.get_all_processing_tasks()
         
-        # Filter workers by status
+        # Filter workers by status (get_all_workers already excludes terminated)
         active_workers = [w for w in workers if w['status'] in ['spawning', 'active', 'terminating']]
-        terminated_workers = [w for w in workers if w['status'] == 'terminated']
         error_workers = [w for w in workers if w['status'] == 'error']
-        
-        logger.info(f"   Total workers: {len(workers)}")
+
         logger.info(f"   Active workers: {len(active_workers)}")
-        logger.info(f"   Terminated workers: {len(terminated_workers)}")
         logger.info(f"   Error workers: {len(error_workers)}")
         logger.info(f"   Processing tasks: {len(processing_tasks)}")
         
@@ -265,19 +272,33 @@ class WorkerShutdownManager:
         """Display the current state of workers and tasks."""
         logger.info("📊 Current System State")
         logger.info("=" * 40)
-        
+
         workers = await self.get_all_workers()
         processing_tasks = await self.get_all_processing_tasks()
-        
-        # Group workers by status
+
+        # Get terminated count separately (not returned by get_all_workers)
+        try:
+            terminated_result = (
+                self.db.supabase.table('workers')
+                .select('id', count='exact')
+                .eq('status', 'terminated')
+                .execute()
+            )
+            terminated_count = terminated_result.count or 0
+        except Exception:
+            terminated_count = 0
+
+        # Group non-terminated workers by status
         status_counts = {}
         for worker in workers:
             status = worker['status']
             status_counts[status] = status_counts.get(status, 0) + 1
-        
+
         logger.info("Workers by status:")
         for status, count in status_counts.items():
             logger.info(f"   {status}: {count}")
+        if terminated_count:
+            logger.info(f"   terminated: {terminated_count}")
         
         logger.info(f"\nProcessing tasks: {len(processing_tasks)}")
         
