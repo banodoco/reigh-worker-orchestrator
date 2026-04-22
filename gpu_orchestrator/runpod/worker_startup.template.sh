@@ -262,6 +262,21 @@ git reset --hard origin/main >> "$LOG_FILE" 2>&1 || {
     echo "Git reset failed (exit $?); continuing with existing checkout" >> "$LOG_FILE" 2>&1
 }
 
+echo "=== GIT SUBMODULE SYNC ===" >> "$LOG_FILE" 2>&1
+SUBMODULE_UPDATE_OK=1
+timeout 300 git submodule update --init --recursive >> "$LOG_FILE" 2>&1 || SUBMODULE_UPDATE_OK=0
+
+if [ -f .gitmodules ] && grep -q 'path = Wan2GP' .gitmodules; then
+    if [ "$SUBMODULE_UPDATE_OK" != "1" ] || [ ! -d Wan2GP ] || [ -z "$(ls -A Wan2GP 2>/dev/null)" ]; then
+        echo "❌ Wan2GP submodule is missing or empty after submodule update; refusing to start worker" >> "$LOG_FILE" 2>&1
+        echo "❌ Wan2GP submodule is missing or empty after submodule update; refusing to start worker" >&2
+        exit 1
+    fi
+    echo "✅ Wan2GP submodule populated" >> "$LOG_FILE" 2>&1
+else
+    echo "ℹ️  No Wan2GP submodule declared in this tree; skipping verification" >> "$LOG_FILE" 2>&1
+fi
+
 AFTER_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "unknown")
 echo "After:  $AFTER_COMMIT (main)" >> "$LOG_FILE" 2>&1
 
