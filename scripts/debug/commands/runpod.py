@@ -2,38 +2,27 @@
 
 from __future__ import annotations
 
-import os
+import asyncio
 import sys
 from typing import Any, Dict, List, Set, Tuple
 
 from dotenv import load_dotenv
+from runpod_lifecycle import RunPodConfig, find_orphans, list_pods, terminate
 
 
-def _load_runpod_module():
-    try:
-        import runpod
-    except ImportError:
-        print("❌ Error: runpod module not installed")
-        print("   Install with: pip install runpod")
-        sys.exit(1)
-    return runpod
-
-
-def _configure_runpod_api(runpod_module: Any) -> None:
-    runpod_api_key = os.getenv("RUNPOD_API_KEY")
-    if not runpod_api_key:
-        print("❌ Error: required RunPod environment variable is not set")
-        sys.exit(1)
-    runpod_module.api_key = runpod_api_key
-
-
-def _get_active_runpod_pods(runpod_module: Any) -> List[Dict[str, Any]]:
-    runpod_pods = runpod_module.get_pods()
+def _get_active_runpod_pods(api_key: str) -> List[Dict[str, Any]]:
+    summaries = asyncio.run(list_pods(api_key))
     return [
-        pod
-        for pod in runpod_pods
-        if pod.get("desiredStatus") in ["RUNNING", "PROVISIONING"]
-        and (pod.get("name", "").startswith("gpu_") or pod.get("name", "").startswith("gpu-"))
+        {
+            "id": pod.id,
+            "name": pod.name,
+            "desiredStatus": pod.desired_status,
+            "createdAt": pod.created_at,
+            "costPerHr": pod.cost_per_hr,
+        }
+        for pod in summaries
+        if pod.desired_status in ["RUNNING", "PROVISIONING"]
+        and ((pod.name or "").startswith("gpu_") or (pod.name or "").startswith("gpu-"))
     ]
 
 
@@ -44,6 +33,7 @@ def _get_active_db_workers(client: Any) -> List[Dict[str, Any]]:
 
 
 def _partition_sync_diffs(
+    api_key: str,
     active_runpod_pods: List[Dict[str, Any]],
     active_db_workers: List[Dict[str, Any]],
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
@@ -53,13 +43,25 @@ def _partition_sync_diffs(
         if runpod_id:
             db_runpod_ids.add(runpod_id)
 
-    orphaned_pods: List[Dict[str, Any]] = []
+    orphan_summaries = asyncio.run(find_orphans(api_key, db_runpod_ids))
+    active_runpod_ids = {pod.get("id") for pod in active_runpod_pods}
+    orphaned_pods = [
+        {
+            "id": pod.id,
+            "name": pod.name,
+            "desiredStatus": pod.desired_status,
+            "createdAt": pod.created_at,
+            "costPerHr": pod.cost_per_hr,
+        }
+        for pod in orphan_summaries
+        if pod.id in active_runpod_ids
+        and ((pod.name or "").startswith("gpu_") or (pod.name or "").startswith("gpu-"))
+    ]
+
     runpod_pod_ids: Set[str] = set()
     for pod in active_runpod_pods:
         pod_id = pod.get("id")
         runpod_pod_ids.add(pod_id)
-        if pod_id not in db_runpod_ids:
-            orphaned_pods.append(pod)
 
     db_only_workers: List[Dict[str, Any]] = []
     for worker in active_db_workers:
@@ -113,7 +115,7 @@ def _print_orphaned_pods(orphaned_pods: List[Dict[str, Any]]) -> float:
     return total_cost
 
 
-def _maybe_terminate_orphaned(orphaned_pods: List[Dict[str, Any]], runpod_module: Any, should_terminate: bool) -> None:
+def _maybe_terminate_orphaned(orphaned_pods: List[Dict[str, Any]], api_key: str, should_terminate: bool) -> None:
     if not orphaned_pods:
         return
     if not should_terminate:
@@ -126,7 +128,7 @@ def _maybe_terminate_orphaned(orphaned_pods: List[Dict[str, Any]], runpod_module
         pod_id = pod.get("id")
         print(f"   Terminating {pod_id}...")
         try:
-            runpod_module.terminate_pod(pod_id)
+            asyncio.run(terminate(pod_id, api_key))
             print(f"   ✅ Terminated {pod_id}")
         except Exception as exc:
             print(f"   ❌ Failed to terminate {pod_id}: {exc}")
@@ -152,18 +154,21 @@ def _print_db_only_workers(db_only_workers: List[Dict[str, Any]]) -> None:
 def run(client, options: dict) -> None:
     """Handle 'debug.py runpod' command."""
     load_dotenv()
-    runpod_module = _load_runpod_module()
-    _configure_runpod_api(runpod_module)
+    api_key = RunPodConfig.from_env().api_key
 
     try:
         print("🔍 Analyzing RunPod vs Database state...")
-        active_runpod_pods = _get_active_runpod_pods(runpod_module)
+        active_runpod_pods = _get_active_runpod_pods(api_key)
         active_db_workers = _get_active_db_workers(client)
-        orphaned_pods, db_only_workers = _partition_sync_diffs(active_runpod_pods, active_db_workers)
+        orphaned_pods, db_only_workers = _partition_sync_diffs(
+            api_key,
+            active_runpod_pods,
+            active_db_workers,
+        )
 
         _print_summary(active_runpod_pods, active_db_workers, orphaned_pods, db_only_workers)
         _print_orphaned_pods(orphaned_pods)
-        _maybe_terminate_orphaned(orphaned_pods, runpod_module, options.get("terminate"))
+        _maybe_terminate_orphaned(orphaned_pods, api_key, options.get("terminate"))
         _print_db_only_workers(db_only_workers)
         print("\n" + "=" * 80)
     except Exception as exc:

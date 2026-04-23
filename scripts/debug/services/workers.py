@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import Counter
 from datetime import datetime, timedelta, timezone
 import logging
 from typing import Any, Dict
 
-from gpu_orchestrator.runpod import create_runpod_client
+from gpu_orchestrator.config import OrchestratorConfig
+from gpu_orchestrator.worker_spawner import create_worker_spawner
 from scripts.debug.models import WorkerInfo, WorkersSummary
 
 logger = logging.getLogger(__name__)
@@ -67,7 +69,7 @@ def check_worker_disk_space(db: Any, worker_id: str) -> Dict[str, Any]:
         return {"available": False, "error": "No RunPod ID found"}
 
     try:
-        client = create_runpod_client()
+        client = create_worker_spawner(OrchestratorConfig.from_env(), db)
         check_command = """
         echo "=== DISK SPACE ==="
         df -h / /tmp /var /workspace 2>/dev/null
@@ -78,7 +80,7 @@ def check_worker_disk_space(db: Any, worker_id: str) -> Dict[str, Any]:
         echo "=== APT CACHE SIZE ==="
         du -sh /var/cache/apt 2>/dev/null || echo "N/A"
         """
-        command_result = client.execute_command_on_worker(runpod_id, check_command, timeout=15)
+        command_result = asyncio.run(client.execute_command_on_worker(runpod_id, check_command, timeout=15))
         if not command_result or command_result[0] != 0:
             return {"available": False, "error": "SSH command failed"}
 

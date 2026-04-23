@@ -1,6 +1,8 @@
 """Static import map for module coverage tracking."""
 
+import inspect
 import importlib
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -59,7 +61,6 @@ def test_runpod_cutover_modules_import_at_runtime() -> None:
     """Import the RunPod cutover modules to catch broken script/module imports."""
     module_names = [
         "gpu_orchestrator.control_loop",
-        "gpu_orchestrator.runpod_client",
         "gpu_orchestrator.logging_config",
         "api_orchestrator.logging_config",
         "scripts.debug.services.workers",
@@ -74,3 +75,48 @@ def test_runpod_cutover_modules_import_at_runtime() -> None:
 
     for module_name in module_names:
         assert importlib.import_module(module_name) is not None
+
+
+def test_requirements_pin_runpod_lifecycle_git_dependency() -> None:
+    """Keep the orchestrator dependency file pinned to the published package tag."""
+    requirements = Path("gpu_orchestrator/requirements.txt").read_text().splitlines()
+    assert (
+        "runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle@v0.1.0"
+        in requirements
+    )
+
+
+def test_local_runpod_lifecycle_shim_exposes_cutover_symbols() -> None:
+    """Guard the local import surface the orchestrator now depends on."""
+    import runpod_lifecycle
+
+    for symbol in (
+        "RunPodConfig",
+        "launch",
+        "terminate",
+        "list_pods",
+        "find_orphans",
+        "get_network_volumes",
+    ):
+        assert hasattr(runpod_lifecycle, symbol)
+
+
+def test_worker_spawner_adapter_async_contract() -> None:
+    """Keep the adapter surface aligned with the async/sync migration contract."""
+    from gpu_orchestrator.worker_spawner import WorkerSpawnerAdapter
+
+    async_methods = (
+        "spawn_worker",
+        "start_worker_process",
+        "check_and_initialize_worker",
+        "terminate_worker",
+        "get_pod_status",
+        "execute_command_on_worker",
+        "check_storage_health",
+        "get_storage_volume_id",
+        "expand_network_volume",
+    )
+    for method_name in async_methods:
+        assert inspect.iscoroutinefunction(getattr(WorkerSpawnerAdapter, method_name))
+
+    assert not inspect.iscoroutinefunction(WorkerSpawnerAdapter.generate_worker_id)

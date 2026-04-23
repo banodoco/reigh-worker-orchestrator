@@ -4,12 +4,28 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 from gpu_orchestrator.control.phases.lifecycle import LifecyclePhaseMixin
+from gpu_orchestrator.worker_spawner import WorkerSpawnerAdapter
 from gpu_orchestrator.worker_state import CycleSummary, TaskCounts, WorkerLifecycle
 from tests.scaling_decision_helpers import make_config, make_worker_state
 
 
 def test_lifecycle_phase_mixin_exists():
     assert LifecyclePhaseMixin.__name__ == "LifecyclePhaseMixin"
+
+
+def _make_runpod_mock() -> Mock:
+    runpod = Mock(spec=WorkerSpawnerAdapter)
+    runpod.spawn_worker = AsyncMock()
+    runpod.terminate_worker = AsyncMock()
+    runpod.get_pod_status = AsyncMock()
+    runpod.start_worker_process = AsyncMock()
+    runpod.check_and_initialize_worker = AsyncMock()
+    runpod.execute_command_on_worker = AsyncMock()
+    runpod.check_storage_health = AsyncMock()
+    runpod.get_storage_volume_id = AsyncMock()
+    runpod.expand_network_volume = AsyncMock()
+    runpod.generate_worker_id = Mock()
+    return runpod
 
 
 def test_early_desired_respects_buffer_minimum():
@@ -31,7 +47,7 @@ def test_early_desired_respects_buffer_minimum():
                 spawning_grace_period_sec=60,
             )
             self.db = SimpleNamespace(update_worker_status=AsyncMock())
-            self.runpod = Mock()
+            self.runpod = _make_runpod_mock()
             self.last_scale_down_at = None
 
     host = Host()
@@ -45,4 +61,4 @@ def test_early_desired_respects_buffer_minimum():
     assert [ws.worker_id for ws in remaining] == ["spawning-1"]
     assert summary.workers_terminated == 0
     host.db.update_worker_status.assert_not_awaited()
-    host.runpod.terminate_worker.assert_not_called()
+    host.runpod.terminate_worker.assert_not_awaited()

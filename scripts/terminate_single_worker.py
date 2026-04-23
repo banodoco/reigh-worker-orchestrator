@@ -17,8 +17,9 @@ import argparse
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+from gpu_orchestrator.config import OrchestratorConfig
 from gpu_orchestrator.database import DatabaseClient
-from gpu_orchestrator.runpod import create_runpod_client
+from gpu_orchestrator.worker_spawner import create_worker_spawner
 
 # Set up logging
 logging.basicConfig(
@@ -69,7 +70,7 @@ async def terminate_worker(worker_id: str, skip_tasks: bool = False):
     """Terminate a worker and optionally reset its tasks."""
     try:
         db = DatabaseClient()
-        runpod = create_runpod_client()
+        runpod = create_worker_spawner(OrchestratorConfig.from_env(), db)
         
         logger.info(f"\n🔍 Looking up worker: {worker_id}")
         
@@ -103,7 +104,7 @@ async def terminate_worker(worker_id: str, skip_tasks: bool = False):
         # Terminate RunPod instance
         if runpod_id:
             logger.info(f"\n🛑 Terminating RunPod instance {runpod_id}...")
-            success = runpod.terminate_worker(runpod_id)
+            success = await runpod.terminate_worker(runpod_id)
             
             if success:
                 logger.info(f"✅ RunPod instance terminated successfully")

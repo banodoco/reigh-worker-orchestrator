@@ -12,7 +12,10 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from gpu_orchestrator.runpod import create_runpod_client
+from runpod_lifecycle import RunPodConfig, find_gpu_type, get_network_volumes
+
+from gpu_orchestrator.config import OrchestratorConfig
+from gpu_orchestrator.worker_spawner import create_worker_spawner
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -24,13 +27,13 @@ async def check_api_connection():
     print("-" * 50)
     
     try:
-        client = create_runpod_client()
-        
+        config = RunPodConfig.from_env()
+
         # Test GPU types
-        gpu_info = client._get_gpu_type_info()
+        gpu_info = find_gpu_type(config.gpu_type, config.api_key)
         if gpu_info:
             print("✅ API connection successful")
-            print(f"   Target GPU: {client.gpu_type}")
+            print(f"   Target GPU: {config.gpu_type}")
             print(f"   GPU ID: {gpu_info.get('id')}")
             if gpu_info.get('lowestPrice'):
                 price = gpu_info['lowestPrice'].get('uninterruptablePrice', 'N/A')
@@ -50,8 +53,8 @@ async def check_network_volumes():
     print("-" * 50)
     
     try:
-        client = create_runpod_client()
-        volumes = client.get_network_volumes()
+        config = RunPodConfig.from_env()
+        volumes = get_network_volumes(config.api_key)
         
         if volumes:
             print(f"✅ Found {len(volumes)} network volumes:")
@@ -64,13 +67,16 @@ async def check_network_volumes():
                 print(f"   ... and {len(volumes) - 5} more")
             
             # Test storage name lookup (like user's example)
-            if client.storage_name:
-                print(f"\n📦 Testing storage lookup for: {client.storage_name}")
-                storage_id = client._get_storage_volume_id()
+            if config.storage_name:
+                print(f"\n📦 Testing storage lookup for: {config.storage_name}")
+                storage_id = next(
+                    (volume.get("id") for volume in volumes if volume.get("name") == config.storage_name),
+                    None,
+                )
                 if storage_id:
-                    print(f"✅ Found storage '{client.storage_name}' → {storage_id}")
+                    print(f"✅ Found storage '{config.storage_name}' → {storage_id}")
                 else:
-                    print(f"❌ Storage '{client.storage_name}' not found")
+                    print(f"❌ Storage '{config.storage_name}' not found")
             else:
                 print("\n⚠️  No storage name configured (RUNPOD_STORAGE_NAME)")
         else:
@@ -88,25 +94,25 @@ async def check_ssh_configuration():
     print("-" * 50)
     
     try:
-        client = create_runpod_client()
+        config = RunPodConfig.from_env()
         
         # Check public key
-        if client.ssh_public_key_path:
-            pub_path = os.path.expanduser(client.ssh_public_key_path)
+        if config.ssh_public_key_path:
+            pub_path = os.path.expanduser(config.ssh_public_key_path)
             if os.path.exists(pub_path):
-                print(f"✅ Public key found: {client.ssh_public_key_path}")
+                print(f"✅ Public key found: {config.ssh_public_key_path}")
                 # Show first few chars
                 with open(pub_path, 'r') as f:
                     content = f.read().strip()
                     print(f"   Key type: {content.split()[0] if content else 'Unknown'}")
             else:
-                print(f"❌ Public key not found: {client.ssh_public_key_path}")
+                print(f"❌ Public key not found: {config.ssh_public_key_path}")
         else:
             print("⚠️  No public key configured")
         
         # Check private key
-        if client.ssh_private_key_path:
-            priv_path = os.path.expanduser(client.ssh_private_key_path)
+        if config.ssh_private_key_path:
+            priv_path = os.path.expanduser(config.ssh_private_key_path)
             if os.path.exists(priv_path):
                 print("✅ File-based SSH material found")
             else:
@@ -132,14 +138,14 @@ async def check_worker_lifecycle():
         return True
     
     try:
-        client = create_runpod_client()
+        client = create_worker_spawner(OrchestratorConfig.from_env(), None)
         worker_id = f"test-{client.generate_worker_id()}"
         
         print(f"Worker ID: {worker_id}")
         
         # Test spawn with initialization (this now includes repo setup)
         print("\n1. Testing worker spawn with initialization...")
-        result = client.spawn_worker(worker_id)
+        result = await client.spawn_worker(worker_id)
         
         if not result:
             print("❌ Failed to spawn worker")
@@ -178,7 +184,7 @@ async def check_worker_lifecycle():
             
             for i, command in enumerate(test_commands, 1):
                 print(f"\n   Command {i}: {command}")
-                result_cmd = client.execute_command_on_worker(pod_id, command, timeout=30)
+                result_cmd = await client.execute_command_on_worker(pod_id, command, timeout=30)
                 
                 if result_cmd:
                     exit_code, stdout, stderr = result_cmd
@@ -195,7 +201,7 @@ async def check_worker_lifecycle():
         # Test starting worker process manually if not auto-started
         if status == "running":
             print("\n3. Testing worker process management...")
-            if client.start_worker_process(pod_id):
+            if await client.start_worker_process(pod_id, worker_id):
                 print("✅ Worker process started successfully")
             else:
                 print("⚠️  Worker process start failed")
@@ -206,7 +212,7 @@ async def check_worker_lifecycle():
         
         # Test terminate
         print("\n5. Testing worker termination...")
-        success = client.terminate_worker(pod_id)
+        success = await client.terminate_worker(pod_id)
         
         if success:
             print("✅ Worker terminated successfully")
@@ -225,16 +231,16 @@ async def check_configuration():
     print("-" * 50)
     
     try:
-        client = create_runpod_client()
-        
-        print(f"GPU Type: {client.gpu_type}")
-        print(f"Worker Image: {client.worker_image}")
-        print(f"Disk Size: {client.disk_size_gb}GB")
-        print(f"Container Disk: {client.container_disk_gb}GB")
-        
-        if client.network_volume_id:
-            print(f"Network Volume: {client.network_volume_id}")
-            print(f"Mount Path: {client.volume_mount_path}")
+        config = RunPodConfig.from_env()
+
+        print(f"GPU Type: {config.gpu_type}")
+        print(f"Worker Image: {config.worker_image}")
+        print(f"Disk Size: {config.disk_size_gb}GB")
+        print(f"Container Disk: {config.container_disk_gb}GB")
+
+        if config.storage_name:
+            print(f"Network Volume: {config.storage_name}")
+            print(f"Mount Path: {config.volume_mount_path}")
         else:
             print("Network Volume: None configured")
         

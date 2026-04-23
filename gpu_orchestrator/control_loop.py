@@ -27,9 +27,9 @@ from .worker_state import (
     calculate_scaling_decision_pure,
 )
 from .database import DatabaseClient
-from .runpod import create_runpod_client
 from .health_monitor import OrchestratorHealthMonitor
 from .logging_config import set_current_worker
+from .worker_spawner import create_worker_spawner
 
 logger = logging.getLogger(__name__)
 
@@ -41,10 +41,8 @@ class OrchestratorControlLoop:
         load_dotenv()
 
         self.db = DatabaseClient()
-        self.runpod = create_runpod_client()
-
-        # Load all configuration from environment
         self.config = OrchestratorConfig.from_env()
+        self.runpod = create_worker_spawner(self.config, self.db)
 
         # Cycle counter for continuous mode
         self.cycle_count = 0
@@ -383,7 +381,7 @@ class OrchestratorControlLoop:
         terminated_ids = set()
         for ws in eligible[:to_terminate]:
             if ws.runpod_id:
-                success = self.runpod.terminate_worker(ws.runpod_id)
+                success = await self.runpod.terminate_worker(ws.runpod_id)
                 if success:
                     logger.info(f"Terminated spawning worker {ws.worker_id} (RunPod {ws.runpod_id})")
                 else:
@@ -445,7 +443,7 @@ class OrchestratorControlLoop:
                 continue
 
             # PRIORITY 2: Check if pod is ready and initialize
-            status_update = self.runpod.check_and_initialize_worker(worker_id, runpod_id)
+            status_update = await self.runpod.check_and_initialize_worker(worker_id, runpod_id)
 
             if status_update['status'] == 'error':
                 await self._mark_worker_error_by_id(worker_id, status_update.get('error', 'Unknown error'))
@@ -462,7 +460,11 @@ class OrchestratorControlLoop:
                 # Pod ready - launch startup script if not already done
                 if ws.lifecycle == WorkerLifecycle.SPAWNING_SCRIPT_PENDING:
                     if self.config.auto_start_worker_process:
-                        if self.runpod.start_worker_process(runpod_id, worker_id, has_pending_tasks=(task_counts.queued > 0)):
+                        if await self.runpod.start_worker_process(
+                            runpod_id,
+                            worker_id,
+                            has_pending_tasks=(task_counts.queued > 0),
+                        ):
                             logger.info(f"Launched startup script for {worker_id}")
                             metadata_update = {
                                 'ssh_details': status_update.get('ssh_details'),
@@ -1123,7 +1125,7 @@ class OrchestratorControlLoop:
         if runpod_id:
             logger.info(f"WORKER_LIFECYCLE [Worker {worker_id}] Terminating RunPod instance: {runpod_id}")
             try:
-                success = self.runpod.terminate_worker(runpod_id)
+                success = await self.runpod.terminate_worker(runpod_id)
                 if success:
                     logger.info(f"WORKER_LIFECYCLE [Worker {worker_id}] RunPod terminated successfully")
                 else:
@@ -1202,7 +1204,7 @@ class OrchestratorControlLoop:
             # Get pod status
             if runpod_id:
                 try:
-                    pod_status = self.runpod.get_pod_status(runpod_id)
+                    pod_status = await self.runpod.get_pod_status(runpod_id)
                     if pod_status:
                         diagnostics['pod_status'] = {
                             'desired_status': pod_status.get('desired_status'),
@@ -1303,7 +1305,7 @@ class OrchestratorControlLoop:
             if not await self.db.create_worker_record(worker_id, self.runpod.gpu_type):
                 return False
 
-            result = self.runpod.spawn_worker(worker_id)
+            result = await self.runpod.spawn_worker(worker_id)
 
             if result and result.get("runpod_id"):
                 pod_id = result["runpod_id"]
@@ -1333,13 +1335,17 @@ class OrchestratorControlLoop:
                 if not update_success:
                     logger.error(f"CRITICAL: Failed to update worker {worker_id} in database but RunPod pod {pod_id} was created!")
                     try:
-                        self.runpod.terminate_worker(pod_id)
+                        await self.runpod.terminate_worker(pod_id)
                     except Exception:
                         logger.error(f"MANUAL INTERVENTION REQUIRED: Orphaned pod {pod_id}")
                     return False
 
                 if final_status == 'active' and self.config.auto_start_worker_process:
-                    self.runpod.start_worker_process(pod_id, worker_id, has_pending_tasks=(queued_count > 0))
+                    await self.runpod.start_worker_process(
+                        pod_id,
+                        worker_id,
+                        has_pending_tasks=(queued_count > 0),
+                    )
 
                 return final_status not in ('error', 'terminated')
             else:
@@ -1377,7 +1383,7 @@ class OrchestratorControlLoop:
 
         try:
             if runpod_id:
-                success = self.runpod.terminate_worker(runpod_id)
+                success = await self.runpod.terminate_worker(runpod_id)
                 if not success:
                     logger.error(f"WORKER_LIFECYCLE [Worker {worker_id}] RunPod termination FAILED")
                     return False
@@ -1477,7 +1483,7 @@ class OrchestratorControlLoop:
 
         for storage_name, storage_workers in workers_by_storage.items():
             try:
-                volume_id = self.runpod._get_storage_volume_id(storage_name)
+                volume_id = await self.runpod.get_storage_volume_id(storage_name)
                 if not volume_id:
                     continue
 
@@ -1499,12 +1505,12 @@ class OrchestratorControlLoop:
                     continue
 
                 runpod_id = check_worker.get('metadata', {}).get('runpod_id')
-                health = self.runpod.check_storage_health(
+                health = await self.runpod.check_storage_health(
                     storage_name=storage_name,
                     volume_id=volume_id,
                     active_runpod_id=runpod_id,
                     min_free_gb=self.config.storage_min_free_gb,
-                    max_percent_used=self.config.storage_max_percent_used
+                    max_percent_used=self.config.storage_max_percent_used,
                 )
 
                 summary['storage_health'][storage_name] = health
@@ -1514,7 +1520,7 @@ class OrchestratorControlLoop:
                     new_size = current_size + self.config.storage_expansion_increment_gb
 
                     logger.warning(f"STORAGE_CHECK '{storage_name}' needs expansion: {health.get('message')}")
-                    if self.runpod._expand_network_volume(volume_id, new_size):
+                    if await self.runpod.expand_network_volume(volume_id, new_size):
                         logger.info(f"STORAGE_CHECK Successfully expanded '{storage_name}' to {new_size}GB")
                     else:
                         logger.error(f"STORAGE_CHECK Failed to expand '{storage_name}'!")
@@ -1538,10 +1544,10 @@ class OrchestratorControlLoop:
                     logger.info(f"[ERROR_CLEANUP] Worker {worker_id} past grace period ({error_age:.0f}s), forcing cleanup")
 
                     if runpod_id:
-                        pod_status = self.runpod.get_pod_status(runpod_id)
+                        pod_status = await self.runpod.get_pod_status(runpod_id)
                         if pod_status and pod_status.get('desired_status') not in ['TERMINATED', 'FAILED']:
                             try:
-                                self.runpod.terminate_worker(runpod_id)
+                                await self.runpod.terminate_worker(runpod_id)
                             except Exception as e:
                                 logger.error(f"Failed to force terminate RunPod {runpod_id}: {e}")
 
@@ -1554,7 +1560,7 @@ class OrchestratorControlLoop:
             logger.warning(f"[ERROR_CLEANUP] Worker {worker_id} has no error_time, forcing immediate cleanup")
             if runpod_id:
                 try:
-                    self.runpod.terminate_worker(runpod_id)
+                    await self.runpod.terminate_worker(runpod_id)
                     termination_metadata = {'terminated_at': datetime.now(timezone.utc).isoformat()}
                     await self.db.update_worker_status(worker_id, 'terminated', termination_metadata)
                 except Exception as e:
@@ -1595,9 +1601,9 @@ class OrchestratorControlLoop:
 
                 runpod_id = ws.runpod_id
                 if runpod_id:
-                    pod_status = self.runpod.get_pod_status(runpod_id)
+                    pod_status = await self.runpod.get_pod_status(runpod_id)
                     if pod_status and pod_status.get('desired_status') not in ['TERMINATED', 'FAILED']:
-                        self.runpod.terminate_worker(runpod_id)
+                        await self.runpod.terminate_worker(runpod_id)
 
                 reset_count = await self.db.reset_orphaned_tasks([worker_id])
                 if reset_count > 0:
@@ -1648,7 +1654,7 @@ class OrchestratorControlLoop:
                 if pod_name not in db_worker_names:
                     logger.warning(f"ZOMBIE DETECTED: RunPod pod {pod_name} ({runpod_id}) not in database")
                     try:
-                        success = self.runpod.terminate_worker(runpod_id)
+                        success = await self.runpod.terminate_worker(runpod_id)
                         if success:
                             summary['actions']['workers_terminated'] = summary['actions'].get('workers_terminated', 0) + 1
                     except Exception as e:

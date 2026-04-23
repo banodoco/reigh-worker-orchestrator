@@ -6,6 +6,7 @@ httpx>=0.25.0
 requests>=2.31.0
 runpod>=1.6.0
 paramiko>=3.0.0
+runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle@v0.1.0
 
 # Environment variables
 python-dotenv>=1.0.0

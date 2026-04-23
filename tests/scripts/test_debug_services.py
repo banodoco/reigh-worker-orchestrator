@@ -107,11 +107,11 @@ def test_worker_services_return_expected_models(monkeypatch: Any) -> None:
     logs = [{"timestamp": datetime.now(timezone.utc).isoformat(), "message": "ok", "log_level": "INFO"}]
     log_client = _FakeLogClient(logs)
 
-    class _FakeRunpodClient:
-        def execute_command_on_worker(self, *_args: Any, **_kwargs: Any) -> tuple[int, str]:
-            return (0, "Filesystem 95%")
+    class _FakeWorkerSpawner:
+        async def execute_command_on_worker(self, *_args: Any, **_kwargs: Any) -> tuple[int, str, str]:
+            return (0, "Filesystem 95%", "")
 
-    monkeypatch.setattr(worker_services, "create_runpod_client", lambda: _FakeRunpodClient())
+    monkeypatch.setattr(worker_services, "create_worker_spawner", lambda *_args, **_kwargs: _FakeWorkerSpawner())
 
     info = worker_services.get_worker_info(db, log_client, "worker-1", hours=1, startup=False)
     logging_status = worker_services.check_worker_logging(log_client, "worker-1")

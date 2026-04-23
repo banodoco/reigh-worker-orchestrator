@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 from typing import Any, Dict, List, Optional
 
 from dotenv import load_dotenv
+from runpod_lifecycle import get_network_volumes
 
+from gpu_orchestrator.config import OrchestratorConfig
+from gpu_orchestrator.worker_spawner import create_worker_spawner
 from scripts.debug.client import DebugClient
 
 
@@ -80,7 +84,7 @@ def _check_storage_health(runpod_client: Any, workers_by_storage: Dict[str, List
     print(f"   Found workers on {len(workers_by_storage)} storage volume(s): {list(workers_by_storage.keys())}\n")
 
     for storage_name, storage_workers in workers_by_storage.items():
-        volume_id = runpod_client._get_storage_volume_id(storage_name)
+        volume_id = asyncio.run(runpod_client.get_storage_volume_id(storage_name))
         if not volume_id:
             print(f"   {'=' * 60}")
             print(f"   📦 {storage_name}")
@@ -99,12 +103,14 @@ def _check_storage_health(runpod_client: Any, workers_by_storage: Dict[str, List
             continue
 
         runpod_id = check_worker.get("metadata", {}).get("runpod_id")
-        health = runpod_client.check_storage_health(
-            storage_name=storage_name,
-            volume_id=volume_id,
-            active_runpod_id=runpod_id,
-            min_free_gb=int(os.getenv("STORAGE_MIN_FREE_GB", "50")),
-            max_percent_used=int(os.getenv("STORAGE_MAX_PERCENT_USED", "85")),
+        health = asyncio.run(
+            runpod_client.check_storage_health(
+                storage_name=storage_name,
+                volume_id=volume_id,
+                active_runpod_id=runpod_id,
+                min_free_gb=int(os.getenv("STORAGE_MIN_FREE_GB", "50")),
+                max_percent_used=int(os.getenv("STORAGE_MAX_PERCENT_USED", "85")),
+            )
         )
         _print_health_result(storage_name, check_worker, health)
 
@@ -118,7 +124,7 @@ def _expand_storage_if_requested(
         return
 
     print(f"\n🔧 Expanding storage '{expand_target}'...")
-    volume_id = runpod_client._get_storage_volume_id(expand_target)
+    volume_id = asyncio.run(runpod_client.get_storage_volume_id(expand_target))
     if not volume_id:
         print(f"   ❌ Could not find volume ID for '{expand_target}'")
         return
@@ -134,7 +140,7 @@ def _expand_storage_if_requested(
     print(f"   Current size: {current_size} GB")
     print(f"   New size: {new_size} GB (+{increment} GB)")
 
-    if runpod_client._expand_network_volume(volume_id, new_size):
+    if asyncio.run(runpod_client.expand_network_volume(volume_id, new_size)):
         print(f"   ✅ Successfully expanded to {new_size} GB!")
     else:
         print("   ❌ Expansion failed!")
@@ -148,9 +154,7 @@ def run(client: DebugClient, options: dict) -> None:
     print("=" * 80)
 
     try:
-        from gpu_orchestrator.runpod import create_runpod_client, get_network_volumes
-
-        runpod_client = create_runpod_client()
+        runpod_client = create_worker_spawner(OrchestratorConfig.from_env(), client.db)
         volumes = get_network_volumes(runpod_client.api_key)
         _print_volume_catalog(volumes)
         if not volumes:

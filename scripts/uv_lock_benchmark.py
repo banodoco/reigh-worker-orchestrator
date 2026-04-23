@@ -13,6 +13,7 @@ Requires: RUNPOD_API_KEY in .env or environment.
 import os
 import sys
 import time
+import asyncio
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -20,8 +21,9 @@ from dotenv import load_dotenv
 load_dotenv()
 
 import runpod
-from gpu_orchestrator.runpod.api import create_pod_and_wait, get_pod_ssh_details
-from gpu_orchestrator.runpod.ssh import SSHClient
+from runpod_lifecycle import terminate
+from runpod_lifecycle.api import create_pod as create_pod_and_wait, get_pod_ssh_details
+from runpod_lifecycle.ssh import SSHClient
 
 API_KEY = os.environ["RUNPOD_API_KEY"]
 SSH_PUBLIC_KEY = os.getenv("RUNPOD_SSH_PUBLIC_KEY", "")
@@ -223,7 +225,7 @@ def main():
             print(f"\nTerminating pod {pod_id}...")
             try:
                 runpod.api_key = API_KEY
-                runpod.terminate_pod(pod_id)
+                asyncio.run(terminate(pod_id, API_KEY))
                 print(f"Pod {pod_id} terminated.")
             except Exception as e:
                 print(f"⚠️  Failed to terminate pod {pod_id}: {e}")

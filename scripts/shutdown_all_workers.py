@@ -23,8 +23,9 @@ import argparse
 project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, project_root)
 
+from gpu_orchestrator.config import OrchestratorConfig
 from gpu_orchestrator.database import DatabaseClient
-from gpu_orchestrator.runpod import create_runpod_client
+from gpu_orchestrator.worker_spawner import create_worker_spawner
 
 # Set up logging
 logging.basicConfig(
@@ -39,7 +40,7 @@ class WorkerShutdownManager:
     def __init__(self, dry_run: bool = False):
         self.dry_run = dry_run
         self.db = DatabaseClient()
-        self.runpod = create_runpod_client()
+        self.runpod = create_worker_spawner(OrchestratorConfig.from_env(), self.db)
         
         if dry_run:
             logger.info("🔍 DRY RUN MODE - No actual changes will be made")
@@ -118,7 +119,7 @@ class WorkerShutdownManager:
         
         try:
             logger.info(f"Terminating RunPod instance {runpod_id} for worker {worker['id']}")
-            success = self.runpod.terminate_worker(runpod_id)
+            success = await self.runpod.terminate_worker(runpod_id)
             
             if success:
                 logger.info(f"✅ Successfully terminated RunPod instance {runpod_id}")

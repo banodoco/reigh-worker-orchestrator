@@ -76,7 +76,7 @@ def test_rendered_startup_script_bootstraps_uv_and_runs_locked_sync():
     assert 'mv ".venv" ".venv.pre-uv-$UV_MIGRATION_TS"' in script
     assert '"$UV_BIN" sync --locked --python 3.10 --extra cuda124' in script
     assert 'touch .uv-migrated' in script
-    assert '"$UV_BIN" run --python 3.10 python worker.py' in script
+    assert '"$UV_BIN" run --python 3.10 --extra cuda124 python worker.py' in script
     assert 'update_worker_phase "deps_verified"' in script
 
 

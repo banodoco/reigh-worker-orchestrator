@@ -12,8 +12,9 @@ import os
 # Add project root to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from gpu_orchestrator.config import OrchestratorConfig
 from gpu_orchestrator.database import DatabaseClient
-from gpu_orchestrator.runpod import create_runpod_client
+from gpu_orchestrator.worker_spawner import create_worker_spawner
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -30,7 +31,7 @@ async def spawn_gpu_worker(worker_id: str = None, register_in_db: bool = True):
     try:
         # Initialize clients
         db = DatabaseClient() if register_in_db else None
-        runpod = create_runpod_client()
+        runpod = create_worker_spawner(OrchestratorConfig.from_env(), db)
         
         # Generate worker ID if not provided
         if not worker_id:
@@ -50,7 +51,7 @@ async def spawn_gpu_worker(worker_id: str = None, register_in_db: bool = True):
         
         # Spawn the Runpod instance
         print("2. Creating Runpod instance...")
-        result = runpod.spawn_worker(worker_id)
+        result = await runpod.spawn_worker(worker_id)
         
         if not result:
             print(f"❌ Failed to spawn Runpod instance")
@@ -79,7 +80,11 @@ async def spawn_gpu_worker(worker_id: str = None, register_in_db: bool = True):
             
             # Test SSH connection if possible
             print("\n4. Testing SSH connection...")
-            test_result = runpod.execute_command_on_worker(pod_id, "whoami && pwd && nvidia-smi --query-gpu=name --format=csv,noheader,nounits", timeout=30)
+            test_result = await runpod.execute_command_on_worker(
+                pod_id,
+                "whoami && pwd && nvidia-smi --query-gpu=name --format=csv,noheader,nounits",
+                timeout=30,
+            )
             
             if test_result:
                 exit_code, stdout, stderr = test_result
@@ -146,7 +151,7 @@ async def terminate_worker(worker_id: str = None, pod_id: str = None):
     """
     try:
         db = DatabaseClient()
-        runpod = create_runpod_client()
+        runpod = create_worker_spawner(OrchestratorConfig.from_env(), db)
         
         # If worker_id provided, look up the pod_id
         if worker_id and not pod_id:
@@ -171,7 +176,7 @@ async def terminate_worker(worker_id: str = None, pod_id: str = None):
         
         # Terminate the Runpod instance
         print("1. Terminating Runpod instance...")
-        success = runpod.terminate_worker(pod_id)
+        success = await runpod.terminate_worker(pod_id)
         
         if success:
             print(f"✅ Runpod instance terminated")
@@ -195,7 +200,7 @@ async def get_worker_status(worker_id: str):
     """Get detailed status of a worker."""
     try:
         db = DatabaseClient()
-        runpod = create_runpod_client()
+        runpod = create_worker_spawner(OrchestratorConfig.from_env(), db)
         
         # Get database record
         worker = await db.get_worker_by_id(worker_id)
@@ -215,7 +220,7 @@ async def get_worker_status(worker_id: str):
         if runpod_id:
             print(f"Runpod ID: {runpod_id}")
             
-            status = runpod.get_pod_status(runpod_id)
+            status = await runpod.get_pod_status(runpod_id)
             if status:
                 print(f"Runpod Status: {status.get('desired_status', 'N/A')}")
                 print(f"IP: {status.get('ip', 'N/A')}")
