@@ -80,6 +80,35 @@ def test_rendered_startup_script_bootstraps_uv_and_runs_locked_sync():
     assert 'update_worker_phase "deps_verified"' in script
 
 
+def test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel():
+    script = startup_script.render_startup_script(
+        worker_id="gpu-worker-2",
+        supabase_url="https://example.supabase.co",
+        supabase_anon_key="anon",
+        supabase_service_key="service",
+        replicate_api_token="replicate",
+        max_task_wait_minutes=7,
+        has_pending_tasks=False,
+    )
+
+    assert 'SYNC_SENTINEL=".venv/.sync-inputs"' in script
+    assert '"$UV_BIN" --version' in script
+    assert "python: 3.10" in script
+    assert "extras: cuda124" in script
+    assert "sha256sum uv.lock" in script
+    assert "sha256sum pyproject.toml" in script
+
+    remove_sentinel_index = script.index('rm -f "$SYNC_SENTINEL"')
+    sync_index = script.index('"$UV_BIN" sync --locked')
+    write_sentinel_index = script.index(
+        'printf \'%s\\n\' "$EXPECTED_INPUTS_HASH" > "$SYNC_SENTINEL"'
+    )
+    skip_log_index = script.index("\u23ed\ufe0f  Skipping uv sync")
+
+    assert remove_sentinel_index < sync_index < write_sentinel_index
+    assert skip_log_index < sync_index
+
+
 def test_launch_command_prefers_reigh_worker_workspace_layout():
     command = startup_script.build_launch_command("/tmp/start.sh", "gpu-worker-3")
 

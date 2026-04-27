@@ -340,9 +340,44 @@ else
 fi
 
 echo "=== DEPENDENCY SYNC (uv) ===" >> "$LOG_FILE" 2>&1
-"$UV_BIN" sync --locked --python 3.10 --extra cuda124 >> "$LOG_FILE" 2>&1
+SYNC_SENTINEL=".venv/.sync-inputs"
+UV_VERSION_STR="$("$UV_BIN" --version 2>/dev/null || echo unknown)"
+if [ -f uv.lock ]; then
+    UV_LOCK_SHA256="$(sha256sum uv.lock | awk '{print $1}')"
+else
+    UV_LOCK_SHA256="MISSING"
+fi
+if [ -f pyproject.toml ]; then
+    PYPROJECT_SHA256="$(sha256sum pyproject.toml | awk '{print $1}')"
+else
+    PYPROJECT_SHA256="MISSING"
+fi
+EXPECTED_INPUTS_HASH="$(
+    {
+        printf 'uv-version: %s\n' "$UV_VERSION_STR"
+        printf 'python: 3.10\n'
+        printf 'extras: cuda124\n'
+        printf 'uv-lock-sha256: %s\n' "$UV_LOCK_SHA256"
+        printf 'pyproject-sha256: %s\n' "$PYPROJECT_SHA256"
+    } | sha256sum | awk '{print $1}'
+)"
+SYNC_SKIPPED=0
+if [ -d .venv ] && [ -f "$SYNC_SENTINEL" ]; then
+    RECORDED_INPUTS_HASH="$(cat "$SYNC_SENTINEL" 2>/dev/null | tr -d '[:space:]')"
+    if [ "$RECORDED_INPUTS_HASH" = "$EXPECTED_INPUTS_HASH" ]; then
+        SYNC_SKIPPED=1
+    fi
+fi
+
+if [ "$SYNC_SKIPPED" = "1" ]; then
+    echo "⏭️  Skipping uv sync: $SYNC_SENTINEL matches current inputs (hash=$EXPECTED_INPUTS_HASH; uv=$UV_VERSION_STR)" >> "$LOG_FILE" 2>&1
+else
+    rm -f "$SYNC_SENTINEL" 2>/dev/null || true
+    "$UV_BIN" sync --locked --python 3.10 --extra cuda124 >> "$LOG_FILE" 2>&1
+    printf '%s\n' "$EXPECTED_INPUTS_HASH" > "$SYNC_SENTINEL"
+    echo "✅ uv sync complete; $SYNC_SENTINEL refreshed (hash=$EXPECTED_INPUTS_HASH; uv=$UV_VERSION_STR)" >> "$LOG_FILE" 2>&1
+fi
 touch .uv-migrated
-echo "✅ uv sync complete; sentinel refreshed" >> "$LOG_FILE" 2>&1
 
 update_worker_phase "deps_verified"
 
