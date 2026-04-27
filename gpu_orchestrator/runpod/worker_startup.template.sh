@@ -263,6 +263,17 @@ git reset --hard origin/main >> "$LOG_FILE" 2>&1 || {
 }
 
 echo "=== GIT SUBMODULE SYNC ===" >> "$LOG_FILE" 2>&1
+
+# Persistent volumes can carry a stale Wan2GP/ from before the submodule
+# migration. `git submodule update` does an internal `git clone`, which refuses
+# to clone into a non-empty directory — bricking the spawn. Reconcile first.
+if [ -f .gitmodules ] && grep -q 'path = Wan2GP' .gitmodules; then
+    if [ -d Wan2GP ] && ! git submodule status Wan2GP >/dev/null 2>&1; then
+        echo "Stale non-submodule Wan2GP/ on persistent volume; removing for clean clone" >> "$LOG_FILE" 2>&1
+        rm -rf Wan2GP
+    fi
+fi
+
 SUBMODULE_UPDATE_OK=1
 timeout 300 git submodule update --init --recursive >> "$LOG_FILE" 2>&1 || SUBMODULE_UPDATE_OK=0
 
