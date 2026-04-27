@@ -268,7 +268,11 @@ echo "=== GIT SUBMODULE SYNC ===" >> "$LOG_FILE" 2>&1
 # migration. `git submodule update` does an internal `git clone`, which refuses
 # to clone into a non-empty directory — bricking the spawn. Reconcile first.
 if [ -f .gitmodules ] && grep -q 'path = Wan2GP' .gitmodules; then
-    if [ -d Wan2GP ] && ! git submodule status Wan2GP >/dev/null 2>&1; then
+    # An initialized submodule always has Wan2GP/.git (gitdir pointer file).
+    # If the directory exists but lacks .git, it's stale leftover content from
+    # the pre-submodule vendored era — `git submodule status` still returns 0
+    # in that case (just with a `-` prefix), so checking exit code is wrong.
+    if [ -d Wan2GP ] && [ ! -e Wan2GP/.git ]; then
         echo "Stale non-submodule Wan2GP/ on persistent volume; removing for clean clone" >> "$LOG_FILE" 2>&1
         rm -rf Wan2GP
     fi
