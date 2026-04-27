@@ -109,6 +109,47 @@ def test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel():
     assert skip_log_index < sync_index
 
 
+def test_rendered_startup_script_auto_heals_lockfile_drift():
+    """Existing sentinel test still passes because the success arm preserves the first sentinel write."""
+    script = startup_script.render_startup_script(
+        worker_id="gpu-worker-2",
+        supabase_url="https://example.supabase.co",
+        supabase_anon_key="anon",
+        supabase_service_key="service",
+        replicate_api_token="replicate",
+        max_task_wait_minutes=7,
+        has_pending_tasks=False,
+    )
+
+    set_plus_e_index = script.index("set +e")
+    locked_sync_index = script.index('"$UV_BIN" sync --locked', set_plus_e_index)
+    sync_rc_index = script.index("SYNC_RC=$?", locked_sync_index)
+    set_e_index = script.index("set -e", sync_rc_index)
+    warning_index = script.index("⚠️  Lockfile drift detected")
+    lock_index = script.index('"$UV_BIN" lock --python 3.10', warning_index)
+    recovery_sync_index = script.index(
+        '"$UV_BIN" sync --python 3.10 --extra cuda124',
+        lock_index,
+    )
+    recompute_index = script.index(
+        "UV_LOCK_SHA256=\"$(sha256sum uv.lock | awk '{print $1}')\"",
+        warning_index,
+    )
+    auto_heal_write_sentinel_index = script.rindex(
+        'printf \'%s\\n\' "$EXPECTED_INPUTS_HASH" > "$SYNC_SENTINEL"'
+    )
+
+    assert set_plus_e_index < locked_sync_index < sync_rc_index < set_e_index
+    assert "grep -qiE 'lockfile.*needs to be updated'" in script
+    assert "⚠️  Lockfile drift detected" in script
+    assert '"$UV_BIN" lock --python 3.10' in script
+    assert '"$UV_BIN" sync --python 3.10 --extra cuda124' in script
+    assert recompute_index > warning_index
+    assert warning_index < lock_index < recovery_sync_index < auto_heal_write_sentinel_index
+    assert "✅ uv sync complete via auto-heal" in script
+    assert "output did not match lockfile-drift marker" in script
+
+
 def test_launch_command_prefers_reigh_worker_workspace_layout():
     command = startup_script.build_launch_command("/tmp/start.sh", "gpu-worker-3")
 
