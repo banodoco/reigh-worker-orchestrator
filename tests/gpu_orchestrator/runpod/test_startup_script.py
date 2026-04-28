@@ -121,10 +121,9 @@ def test_rendered_startup_script_auto_heals_lockfile_drift():
         has_pending_tasks=False,
     )
 
-    set_plus_e_index = script.index("set +e")
-    locked_sync_index = script.index('"$UV_BIN" sync --locked', set_plus_e_index)
-    sync_rc_index = script.index("SYNC_RC=$?", locked_sync_index)
-    set_e_index = script.index("set -e", sync_rc_index)
+    locked_sync_index = script.index('if "$UV_BIN" sync --locked')
+    sync_rc_then_index = script.index("SYNC_RC=0", locked_sync_index)
+    sync_rc_else_index = script.index("SYNC_RC=$?", sync_rc_then_index)
     warning_index = script.index("⚠️  Lockfile drift detected")
     lock_index = script.index('"$UV_BIN" lock --python 3.10', warning_index)
     recovery_sync_index = script.index(
@@ -139,7 +138,7 @@ def test_rendered_startup_script_auto_heals_lockfile_drift():
         'printf \'%s\\n\' "$EXPECTED_INPUTS_HASH" > "$SYNC_SENTINEL"'
     )
 
-    assert set_plus_e_index < locked_sync_index < sync_rc_index < set_e_index
+    assert locked_sync_index < sync_rc_then_index < sync_rc_else_index < warning_index
     assert "grep -qiE 'lockfile.*needs to be updated'" in script
     assert "⚠️  Lockfile drift detected" in script
     assert '"$UV_BIN" lock --python 3.10' in script

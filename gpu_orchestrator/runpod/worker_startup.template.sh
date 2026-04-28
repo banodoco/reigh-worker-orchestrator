@@ -374,10 +374,13 @@ if [ "$SYNC_SKIPPED" = "1" ]; then
 else
     rm -f "$SYNC_SENTINEL" 2>/dev/null || true
     SYNC_OUTPUT="$(mktemp)"
-    set +e
-    "$UV_BIN" sync --locked --python 3.10 --extra cuda124 > "$SYNC_OUTPUT" 2>&1
-    SYNC_RC=$?
-    set -e
+    # Wrap in `if` so the ERR trap does not fire on a non-zero rc — bash's
+    # ERR trap ignores `set +e` but is suppressed inside a conditional.
+    if "$UV_BIN" sync --locked --python 3.10 --extra cuda124 > "$SYNC_OUTPUT" 2>&1; then
+        SYNC_RC=0
+    else
+        SYNC_RC=$?
+    fi
     cat "$SYNC_OUTPUT" >> "$LOG_FILE" 2>&1
     if [ "$SYNC_RC" -eq 0 ]; then
         printf '%s\n' "$EXPECTED_INPUTS_HASH" > "$SYNC_SENTINEL"
