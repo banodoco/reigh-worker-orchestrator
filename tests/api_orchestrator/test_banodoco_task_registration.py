@@ -23,10 +23,13 @@ def test_banodoco_timeline_generate_in_supported_types() -> None:
     assert "banodoco_timeline_generate" in SUPPORTED_TASK_TYPES
 
 
-def test_banodoco_pool_task_taxonomy_routes_generate_only_in_sprint_7() -> None:
-    # Sprint 8 will append `banodoco_render_timeline`. Until then the pool
-    # exposes exactly one type — guards against premature registration.
-    assert BANODOCO_POOL_TASK_TYPES == {"banodoco_timeline_generate"}
+def test_banodoco_pool_task_taxonomy_routes_generate_and_render_after_sprint_8() -> None:
+    # Sprint 8 appended `banodoco_render_timeline` (themed-timeline → MP4)
+    # to the same pool the Sprint 7 worker already serves.
+    assert BANODOCO_POOL_TASK_TYPES == {
+        "banodoco_timeline_generate",
+        "banodoco_render_timeline",
+    }
 
 
 def test_task_type_to_pool_routes_banodoco_generate_to_banodoco_pool() -> None:

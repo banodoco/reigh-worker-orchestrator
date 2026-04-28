@@ -5,6 +5,7 @@ from __future__ import annotations
 from .handlers.banodoco import (
     BANODOCO_POOL,
     BANODOCO_POOL_TASK_TYPES,
+    handle_banodoco_render_timeline,
     handle_banodoco_timeline_generate,
 )
 from .handlers.fal import handle_flux_klein_edit, handle_image_upscale, handle_qwen_image, handle_video_enhance, handle_z_image_turbo_i2i
@@ -33,11 +34,13 @@ TASK_HANDLERS = {
     "z_image_turbo_i2i": handle_z_image_turbo_i2i,
     "video_enhance": handle_video_enhance,
     "flux_klein_edit": handle_flux_klein_edit,
-    # Sprint 7 (SD-034 + SD-035): banodoco worker-pool tasks. The handler in
-    # this registry is the API-worker fallback (raises worker_unavailable);
-    # the real execution path is the pinned Railway `banodoco-worker`
-    # service polling the queue. See `handlers/banodoco.py`.
+    # Sprint 7 + Sprint 8 (SD-034 + SD-035): banodoco worker-pool tasks.
+    # The handlers in this registry are the API-worker fallbacks (each
+    # raises worker_unavailable); the real execution path is the pinned
+    # Railway `banodoco-worker` service polling the queue with both task
+    # types in its claim payload. See `handlers/banodoco.py`.
     "banodoco_timeline_generate": handle_banodoco_timeline_generate,
+    "banodoco_render_timeline": handle_banodoco_render_timeline,
 }
 
 SUPPORTED_TASK_TYPES = list(TASK_HANDLERS.keys())

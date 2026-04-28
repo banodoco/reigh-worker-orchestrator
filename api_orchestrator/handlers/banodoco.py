@@ -47,10 +47,15 @@ logger = logging.getLogger(__name__)
 
 BANODOCO_POOL = "banodoco"
 
-# Tasks claimable by the banodoco worker pool. Sprint 7 = generate only;
-# Sprint 8 will append `banodoco_render_timeline`.
+# Tasks claimable by the banodoco worker pool.
+#   Sprint 7 added `banodoco_timeline_generate` (themed-timeline authoring).
+#   Sprint 8 adds `banodoco_render_timeline` (themed-timeline → MP4 export).
+# Both run on the same `banodoco-worker` image (Node + Chrome + Python +
+# Remotion + theme packages); the worker's claim payload lists both task
+# types so a single pool can serve generate + render workloads.
 BANODOCO_POOL_TASK_TYPES = {
     "banodoco_timeline_generate",
+    "banodoco_render_timeline",
 }
 
 # Default seconds the orchestrator will wait for a `banodoco` worker to claim
@@ -253,11 +258,147 @@ async def handle_banodoco_timeline_generate(
     )
 
 
+# ---------------------------------------------------------------------------
+# Sprint 8: banodoco_render_timeline (themed-timeline → MP4 export)
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class BanodocoRenderTimelinePayload:
+    """Validated payload for the `banodoco_render_timeline` task type.
+
+    Same SD-022 + SD-034 envelope as `banodoco_timeline_generate`, but the
+    artifact is an MP4 not a TimelineConfig. The worker still re-verifies
+    the user JWT, still runs as the audited writer for the render-task
+    record, and still stamps `correlation_id` into the artifact metadata.
+
+    Fields:
+      - timeline_id      — render this timeline's resolved config.
+      - timeline         — resolved TimelineConfig at enqueue time so the
+                           render is reproducible (the source of truth at
+                           click-Render time, NOT the live editor state).
+      - assets           — AssetRegistry with Reigh-storage keys or HTTP
+                           URLs; the worker resolves both shapes.
+      - theme_id         — selects which @banodoco/timeline-theme-* peer
+                           package to use during composition.
+      - output_filename  — suggested name; worker may suffix with task_id.
+      - user_jwt         — SD-022 verification target for the worker.
+      - project_id       — ownership check (worker re-verifies).
+      - correlation_id   — SD-034 idempotency / log thread.
+    """
+
+    timeline_id: str
+    timeline: Dict[str, Any]
+    assets: Dict[str, Any]
+    theme_id: str
+    output_filename: str
+    user_jwt: str
+    project_id: str
+    correlation_id: str
+
+    @classmethod
+    def from_params(cls, params: Dict[str, Any]) -> "BanodocoRenderTimelinePayload":
+        missing: list[str] = []
+        for required in (
+            "timeline_id",
+            "timeline",
+            "assets",
+            "theme_id",
+            "output_filename",
+            "user_jwt",
+            "project_id",
+            "correlation_id",
+        ):
+            if required not in params or params[required] in (None, ""):
+                missing.append(required)
+        if missing:
+            raise ValueError(
+                f"banodoco_render_timeline payload missing required fields: {', '.join(missing)}"
+            )
+
+        timeline = params["timeline"]
+        if not isinstance(timeline, dict):
+            raise ValueError("banodoco_render_timeline timeline must be an object")
+
+        assets = params["assets"]
+        if not isinstance(assets, dict):
+            raise ValueError("banodoco_render_timeline assets must be an object")
+
+        for key in ("correlation_id", "project_id", "timeline_id"):
+            try:
+                uuid.UUID(str(params[key]))
+            except (ValueError, AttributeError) as exc:
+                raise ValueError(
+                    f"banodoco_render_timeline {key} must be a UUID string: {exc}"
+                ) from exc
+
+        output_filename = str(params["output_filename"]).strip()
+        if not output_filename:
+            raise ValueError(
+                "banodoco_render_timeline output_filename must be non-empty"
+            )
+
+        return cls(
+            timeline_id=str(params["timeline_id"]),
+            timeline=timeline,
+            assets=assets,
+            theme_id=str(params["theme_id"]),
+            output_filename=output_filename,
+            user_jwt=str(params["user_jwt"]),
+            project_id=str(params["project_id"]),
+            correlation_id=str(params["correlation_id"]),
+        )
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "timeline_id": self.timeline_id,
+            "timeline": self.timeline,
+            "assets": self.assets,
+            "theme_id": self.theme_id,
+            "output_filename": self.output_filename,
+            "user_jwt": self.user_jwt,
+            "project_id": self.project_id,
+            "correlation_id": self.correlation_id,
+        }
+
+
+async def handle_banodoco_render_timeline(
+    task: Dict[str, Any],
+    params: Dict[str, Any],
+    client: httpx.AsyncClient,  # noqa: ARG001 — fallback only validates + routes
+) -> Dict[str, Any]:
+    """API-side fallback for `banodoco_render_timeline`.
+
+    Mirrors `handle_banodoco_timeline_generate` exactly — validates the
+    SD-034 envelope, then raises `worker_unavailable` so the API worker
+    cannot accidentally execute a render. The Node + Chrome + Remotion
+    toolchain only lives on the pinned `banodoco` pool image.
+    """
+    task_id = task.get("task_id") or task.get("id") or "unknown"
+    task_type = task.get("task_type", "banodoco_render_timeline")
+
+    payload = BanodocoRenderTimelinePayload.from_params(params)
+
+    logger.info(
+        "[BANODOCO] API worker received %s task %s (correlation_id=%s); rerouting to banodoco pool.",
+        task_type,
+        task_id,
+        payload.correlation_id,
+    )
+
+    raise RuntimeError(
+        "worker_unavailable: banodoco_render_timeline must be claimed by a "
+        "banodoco-pool worker. The API worker does not host Remotion."
+    )
+
+
 __all__ = [
     "BANODOCO_POOL",
     "BANODOCO_POOL_TASK_TYPES",
+    "BanodocoRenderTimelinePayload",
     "BanodocoTimelineGeneratePayload",
     "DEFAULT_WORKER_UNAVAILABLE_TIMEOUT_SEC",
+    "handle_banodoco_render_timeline",
     "handle_banodoco_timeline_generate",
     "is_worker_pool_available",
 ]
