@@ -142,6 +142,7 @@ orchestrator*.log
 orchestrator.log.*
 failed_tasks.json
 failure_analysis_report_*.md
+.megaplan/plans/*/execution_trace.jsonl
 # Temp test scripts (but not tests/ directory)
 /scripts/*test*.py
 /*test*.py
