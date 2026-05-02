@@ -1,0 +1,236 @@
+{
+  "name": "roll-out-the-runpod-lifecycle-20260423-2303",
+  "idea": "Roll out the runpod_lifecycle package across the Banodoco workspace, top to bottom. Three deliverables:\n\n(1) **Publish the package.** Initial commit at /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle (currently no commits, all files untracked). Push to a NEW public repo at github.com/banodoco/runpod-lifecycle. Use `gh repo create banodoco/runpod-lifecycle --public --source=. --push --description 'Reusable async RunPod lifecycle, discovery, and CLI for the Banodoco stack.'`. Verify the repo is browsable post-push. Tag v0.1.0.\n\n(2) **Migrate reigh-worker-orchestrator** (/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator, currently clean on main). Add `runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle@v0.1.0` to requirements (or pyproject if used). Two-step migration:\n   (a) **Trivial swaps** (~15 sites): rewrite imports in scripts/spawn_gpu.py, scripts/ssh_to_worker.py, scripts/shutdown_all_workers.py, scripts/terminate_single_worker.py, scripts/test_runpod.py, scripts/spot_instance_lifetime_test.py, scripts/uv_e2e_test.py, scripts/uv_lock_benchmark.py, scripts/debug/commands/storage.py, scripts/debug/services/workers.py to import from runpod_lifecycle instead of gpu_orchestrator.runpod. Map create_runpod_client() \u2192 constructing RunPodConfig.from_env(); terminate_worker(pod_id) \u2192 runpod_lifecycle.terminate(pod_id, api_key); get_pod_status(pod_id) \u2192 api.get_pod_status(pod_id, api_key); create_pod_and_wait \u2192 runpod_lifecycle.api.create_pod; get_pod_ssh_details \u2192 runpod_lifecycle.api.get_pod_ssh_details; get_network_volumes \u2192 runpod_lifecycle.get_network_volumes.\n   (b) **WorkerSpawner adapter**: replace the RunpodClient class with a thin orchestrator-local adapter at gpu_orchestrator/worker_spawner.py that internally uses runpod_lifecycle.launch() + injects the orchestrator's startup script (from gpu_orchestrator/runpod/startup_script.py \u2014 that file STAYS in the orchestrator) + writes Supabase rows via the existing DatabaseClient. Update control_loop.py:1306 (spawn_worker), :465 (start_worker_process), :448 (check_and_initialize_worker), and the ~10 control_loop.py call sites that hit self.runpod.terminate_worker / get_pod_status to use the adapter or runpod_lifecycle directly. Update the integration test at tests/gpu_orchestrator/control/phases/test_lifecycle.py:34,48 \u2014 Mock signatures must match the new adapter. Then DELETE gpu_orchestrator/runpod/ subdirectory entirely (api.py, lifecycle.py, client.py, storage.py, ssh.py \u2014 startup_script.py stays). Also delete the obsolete tests at tests/gpu_orchestrator/runpod/test_*.py, tests/test_runpod_decomposition.py, tests/test_direct_runpod_lifecycle.py, tests/test_direct_runpod_storage.py \u2014 those were testing the in-tree code, replaced by the new package's own tests.\n\n(3) **Migrate reigh-worker** (/Users/peteromalley/Documents/reigh-workspace/reigh-worker \u2014 has unrelated uncommitted changes; do not touch those). Add the same git dep. Update scripts/live_test/config.py:73 (RunpodClient construction \u2192 RunPodConfig.from_env()), scripts/live_test/variant_fresh.py and scripts/live_test/variant_update.py (low-level API calls \u2014 trivial), debug/commands/storage.py:18 (create_runpod_client \u2192 RunPodConfig + helpers), debug/commands/runpod.py:14,30 (uses raw runpod SDK currently \u2014 switch to runpod_lifecycle.list_pods + find_orphans for cleaner code).\n\n**Verification (must run, must pass):**\n- runpod-lifecycle: `cd /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle && .venv/bin/python -m pytest -q` \u2014 expect 50+ passed.\n- reigh-worker-orchestrator: install the new package via `pip install -e .[dev]` then `pytest -q tests/` \u2014 must pass green. If a test breaks, fix the consumer code, NOT the package.\n- reigh-worker: same \u2014 install, run tests, must pass green.\n\n**Constraints:**\n- The new package's API surface is fixed by what's exported in /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/__init__.py. If a consumer needs something not exposed, EITHER add a re-export in the package's __init__.py (and bump to v0.1.1, push, retag) OR write a shim in the consumer. Do NOT add unrelated functionality.\n- Do not commit secrets. The orchestrator's .env has live RunPod keys \u2014 never include in commits.\n- Do not push to main on reigh-worker or reigh-worker-orchestrator. Create branches like `runpod-lifecycle-migration` and push those; let the human open PRs.\n- runpod-lifecycle CAN be pushed to its main directly since it has no history yet \u2014 initial commit on main, then push.\n- Preserve the orchestrator's RAM-tier fallback, storage-volume fallback, and startup-script behavior \u2014 those are tested live and must keep working.",
+  "current_state": "finalized",
+  "iteration": 2,
+  "created_at": "2026-04-23T21:03:11Z",
+  "config": {
+    "project_dir": "/Users/peteromalley/Documents/reigh-workspace",
+    "auto_approve": true,
+    "robustness": "light",
+    "mode": "code",
+    "agent": ""
+  },
+  "sessions": {
+    "claude_planner": {
+      "id": "7e51a70e-983f-431d-8b28-4a4ce31c9aba",
+      "mode": "persistent",
+      "created_at": "2026-04-23T21:08:55Z",
+      "last_used_at": "2026-04-23T21:17:43Z",
+      "refreshed": false
+    },
+    "codex_critic": {
+      "id": "019dbc2c-aace-7b63-b846-89476aea7877",
+      "mode": "persistent",
+      "created_at": "2026-04-23T21:13:12Z",
+      "last_used_at": "2026-04-23T21:13:12Z",
+      "refreshed": false
+    },
+    "claude_finalizer": {
+      "id": "96c32a7b-df9c-481c-8e63-b7658d8577ed",
+      "mode": "persistent",
+      "created_at": "2026-04-23T21:22:17Z",
+      "last_used_at": "2026-04-23T21:22:17Z",
+      "refreshed": false
+    },
+    "codex_executor": {
+      "id": "019dbc38-e726-7640-806d-6d3db0841689",
+      "mode": "persistent",
+      "created_at": "2026-04-23T21:24:28Z",
+      "last_used_at": "2026-04-23T22:14:19Z",
+      "refreshed": false
+    }
+  },
+  "plan_versions": [
+    {
+      "version": 1,
+      "file": "plan_v1.md",
+      "hash": "sha256:18d2c1d2b990335d8fa7b6198b05ae73f4c9893ab7bcbb6c530d9f153f0307d0",
+      "timestamp": "2026-04-23T21:08:55Z"
+    },
+    {
+      "version": 2,
+      "file": "plan_v2.md",
+      "hash": "sha256:7aa048e6b4d5d3c75860f881eddb6dd4facd2d9cd7a58f13f71e786f5853f570",
+      "timestamp": "2026-04-23T21:17:43Z"
+    }
+  ],
+  "history": [
+    {
+      "step": "init",
+      "timestamp": "2026-04-23T21:03:11Z",
+      "duration_ms": 0,
+      "cost_usd": 0.0,
+      "result": "success",
+      "environment": {
+        "claude": true,
+        "codex": true
+      }
+    },
+    {
+      "step": "plan",
+      "timestamp": "2026-04-23T21:08:55Z",
+      "duration_ms": 340994,
+      "cost_usd": 1.11970775,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "7e51a70e-983f-431d-8b28-4a4ce31c9aba",
+      "agent": "claude",
+      "output_file": "plan_v1.md",
+      "artifact_hash": "sha256:18d2c1d2b990335d8fa7b6198b05ae73f4c9893ab7bcbb6c530d9f153f0307d0"
+    },
+    {
+      "step": "critique",
+      "timestamp": "2026-04-23T21:13:12Z",
+      "duration_ms": 254951,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019dbc2c-aace-7b63-b846-89476aea7877",
+      "agent": "codex",
+      "output_file": "critique_v1.json",
+      "artifact_hash": "sha256:45453ddabecc780c9b2c7182f10e55d66b5d8e5828d27acad973c5d87bbbafac",
+      "flags_count": 7
+    },
+    {
+      "step": "revise",
+      "timestamp": "2026-04-23T21:17:43Z",
+      "duration_ms": 269697,
+      "cost_usd": 1.1046165,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "7e51a70e-983f-431d-8b28-4a4ce31c9aba",
+      "agent": "claude",
+      "output_file": "plan_v2.md",
+      "artifact_hash": "sha256:7aa048e6b4d5d3c75860f881eddb6dd4facd2d9cd7a58f13f71e786f5853f570",
+      "flags_addressed": [
+        {
+          "id": "FLAG-001",
+          "resolution": "addressed",
+          "reason": "Adapter surface is now explicitly async (all methods `async def` except the pure-string `generate_worker_id`). Step 4 adds an audit of which control_loop functions are already `async def`, Step 7 adds `await` to all 23 call sites, and scripts wrap adapter calls with `asyncio.run(...)` at entry points. Test fixture updated to use `AsyncMock(spec=WorkerSpawnerAdapter)` for async methods."
+        },
+        {
+          "id": "FLAG-002",
+          "resolution": "addressed",
+          "reason": "Step 6 splits scripts into two groups: client-behavior scripts (`spawn_gpu.py`, `ssh_to_worker.py`, `shutdown_all_workers.py`, `terminate_single_worker.py`, `test_runpod.py`, `spot_instance_lifetime_test.py`, `debug/commands/storage.py`, `debug/services/workers.py`) import `create_worker_spawner` from the adapter and get the full client surface including `generate_worker_id`, `execute_command_on_worker`, storage helpers; only raw-helper scripts (`uv_e2e_test.py`, `uv_lock_benchmark.py`) go direct to `runpod_lifecycle`. Adapter's public surface explicitly includes `execute_command_on_worker`, `generate_worker_id`, `check_storage_health`, `get_storage_volume_id`, `expand_network_volume`."
+        },
+        {
+          "id": "FLAG-003",
+          "resolution": "addressed",
+          "reason": "Adapter spec in Step 5 explicitly states it does NOT write Supabase rows. Step 7 preserves the existing `control_loop.py` flow of `create_worker_record` before spawn and `update_worker_status` after. Adapter constructor accepts `db` only for potential read/lookup use, with a written constraint that no adapter method may perform DB writes. Added a success criterion to verify no duplicate DB writes."
+        },
+        {
+          "id": "FLAG-004",
+          "resolution": "addressed",
+          "reason": "Phase 3 Step 12 now covers the full reigh-worker file set: the brief-listed 5 files plus `scripts/live_test/__init__.py` (lazy `gpu_orchestrator.runpod.{lifecycle,ssh,api}` imports), `scripts/live_test/ssh_bootstrap.py`, `scripts/live_test/terminate_guard.py`, and `scripts/live_test/tests/test_primitives.py` (monkeypatch retargets from `gpu_orchestrator.runpod.client` to the new paths). Grep gate added to catch residual references."
+        },
+        {
+          "id": "FLAG-005",
+          "resolution": "addressed",
+          "reason": "Step 3 targets `gpu_orchestrator/requirements.txt` (the actual orchestrator dep file; no root `pyproject.toml`) with `pip install -r gpu_orchestrator/requirements.txt`. Step 11 for reigh-worker uses `pip install -e .` without a `[dev]` extra, and calls out that existing test-dep files (not a synthetic extra) are used. Removed all `pip install -e .[dev]` instructions from consumer repos."
+        }
+      ]
+    },
+    {
+      "step": "finalize",
+      "timestamp": "2026-04-23T21:22:17Z",
+      "duration_ms": 247896,
+      "cost_usd": 0.8090155,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "96c32a7b-df9c-481c-8e63-b7658d8577ed",
+      "agent": "claude",
+      "output_file": "finalize.json",
+      "artifact_hash": "sha256:5800fbd7ab54b4170341750d50859dca0ab1a0d3389efe671b60da2d6eb4dd24"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-04-23T22:03:14Z",
+      "duration_ms": 2454636,
+      "cost_usd": 0.0,
+      "result": "blocked",
+      "session_mode": "persistent",
+      "session_id": "019dbc38-e726-7640-806d-6d3db0841689",
+      "agent": "codex",
+      "output_file": "execution.json",
+      "artifact_hash": "sha256:b8f85fcaf5fec29c3fa88a8d3050d174060a331b06b7db1decea1b52798503d3",
+      "finalize_hash": "sha256:9d3362799845568b7a9825c0a08043fd8351840deafffca65cfa173f6a42a19e",
+      "approval_mode": "auto_approve"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-04-23T22:06:54Z",
+      "duration_ms": 218357,
+      "cost_usd": 0.0,
+      "result": "blocked",
+      "session_mode": "persistent",
+      "session_id": "019dbc38-e726-7640-806d-6d3db0841689",
+      "agent": "codex",
+      "output_file": "execution.json",
+      "artifact_hash": "sha256:2277b39347b92905c02f1c86d17c3fc08f1967618ec94357722577ae44ecce52",
+      "finalize_hash": "sha256:33999c0d30bec78650cf1d83b0430d7fe931c586cb72dccf00c1701a62718d19",
+      "approval_mode": "auto_approve"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-04-23T22:09:19Z",
+      "duration_ms": 143553,
+      "cost_usd": 0.0,
+      "result": "blocked",
+      "session_mode": "persistent",
+      "session_id": "019dbc38-e726-7640-806d-6d3db0841689",
+      "agent": "codex",
+      "output_file": "execution.json",
+      "artifact_hash": "sha256:3e24ecd1fabc05a8d5a16092834579f0022afed13e4710c37891269d73addf55",
+      "finalize_hash": "sha256:66265a61aaec827d5dde0f22a738bbf3b801a011bcc872b80cb6637e844b4cb6",
+      "approval_mode": "auto_approve"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-04-23T22:12:23Z",
+      "duration_ms": 182645,
+      "cost_usd": 0.0,
+      "result": "blocked",
+      "session_mode": "persistent",
+      "session_id": "019dbc38-e726-7640-806d-6d3db0841689",
+      "agent": "codex",
+      "output_file": "execution.json",
+      "artifact_hash": "sha256:1115bbbe193cecee34fee1b2ab1e6f2333a41ff1c83ac974f77ff26444a3280d",
+      "finalize_hash": "sha256:3790bc89829077e52d4f288ec04cd4e6ef04c3394b5dff49e7889d7ff76582eb",
+      "approval_mode": "auto_approve"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-04-23T22:14:19Z",
+      "duration_ms": 115061,
+      "cost_usd": 0.0,
+      "result": "blocked",
+      "session_mode": "persistent",
+      "session_id": "019dbc38-e726-7640-806d-6d3db0841689",
+      "agent": "codex",
+      "output_file": "execution.json",
+      "artifact_hash": "sha256:871ee1643835bbfe9c9ab5efeecfde68b471142b776fe570b5f4717d0a677ac5",
+      "finalize_hash": "sha256:c24fc23cde6a952aa5fe255b58fcf746c7f9b53656e01a5392c3ca791b00dc19",
+      "approval_mode": "auto_approve"
+    }
+  ],
+  "meta": {
+    "significant_counts": [
+      5
+    ],
+    "weighted_scores": [],
+    "plan_deltas": [
+      84.52
+    ],
+    "recurring_critiques": [
+      []
+    ],
+    "total_cost_usd": 3.03334,
+    "overrides": [],
+    "notes": [],
+    "user_approved_gate": true
+  },
+  "last_gate": {
+    "recommendation": "ITERATE"
+  }
+}

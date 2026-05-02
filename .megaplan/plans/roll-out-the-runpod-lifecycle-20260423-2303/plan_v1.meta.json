@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "timestamp": "2026-04-23T21:08:55Z",
+  "hash": "sha256:18d2c1d2b990335d8fa7b6198b05ae73f4c9893ab7bcbb6c530d9f153f0307d0",
+  "questions": [
+    "The package's `src/runpod_lifecycle/__init__.py` was not readable from this session (sandboxing). The brief names the exports it expects (`RunPodConfig.from_env`, `launch`, `terminate`, `api.get_pod_status`, `api.create_pod`, `api.get_pod_ssh_details`, `get_network_volumes`, `list_pods`, `find_orphans`). Is there also an SSH helper (class `SSHClient` or equivalent) exported? `scripts/uv_e2e_test.py` and `scripts/uv_lock_benchmark.py` currently import `SSHClient` from `gpu_orchestrator.runpod.ssh` \u2014 if the package doesn't export an SSH helper, they'll need a v0.1.1 re-export or a consumer shim.",
+    "Inventory of reigh-worker-orchestrator found only `requirements-dev.txt` (pytest/coverage). No `pyproject.toml` was surfaced. The brief says `pip install -e .[dev]` \u2014 is there a `pyproject.toml` or `setup.py` I should add the git dep to, or should I add `runpod-lifecycle @ git+...` to a top-level `requirements.txt` (which also needs confirmation of location)?",
+    "`control_loop.py` uses private storage-mixin methods that aren't in the brief's call-site list: `self.runpod._get_storage_volume_id(storage_name)` at :1480, `self.runpod.check_storage_health(...)` at :1502, `self.runpod._expand_network_volume(volume_id, new_size)` at :1517. The brief says preserve storage-volume fallback as it's live-tested. Does the new package expose equivalents (storage health + expand), or should the adapter keep these as local methods using the RunPod SDK directly?",
+    "reigh-worker has uncommitted changes per the brief. Is it acceptable for me to `git stash` them, branch from clean main, then pop \u2014 or should I confirm the dirty file list with you first in case there's overlap with migration targets (e.g., `debug/commands/storage.py`)?",
+    "The orchestrator has its own `scripts/debug/commands/runpod.py` (direct `import runpod` SDK usage at line 14). The brief only mentions the reigh-worker copy. Should the orchestrator copy also be migrated to `runpod_lifecycle.list_pods` / `find_orphans` in this pass, or leave it alone?",
+    "The adapter's home \u2014 should it live at `gpu_orchestrator/worker_spawner.py` (brief's suggestion) or is there a more natural fit (e.g., keep it inside `gpu_orchestrator/runpod/__init__.py` alongside the surviving `startup_script.py`)? The brief prefers the former; flagging in case you have an architectural preference."
+  ],
+  "success_criteria": [
+    {
+      "criterion": "GitHub repo `banodoco/runpod-lifecycle` exists, is public, shows the description 'Reusable async RunPod lifecycle, discovery, and CLI for the Banodoco stack.', and has the `v0.1.0` tag visible.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "`cd /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle && .venv/bin/python -m pytest -q` exits 0 with \u226550 tests passed.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "`cd /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator && pytest -q tests/` exits 0 (green) on the `runpod-lifecycle-migration` branch.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "`cd /Users/peteromalley/Documents/reigh-workspace/reigh-worker && pytest -q` exits 0 (green) on the `runpod-lifecycle-migration` branch.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "In reigh-worker-orchestrator, `grep -r 'from gpu_orchestrator.runpod' --include='*.py'` returns only imports from `gpu_orchestrator.runpod.startup_script` (no other submodules remain referenced).",
+      "priority": "must",
+      "requires": [
+        "run_shell",
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "`gpu_orchestrator/runpod/api.py`, `client.py`, `lifecycle.py`, `storage.py`, `ssh.py` are deleted from the orchestrator; `startup_script.py` still exists.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "Obsolete tests are deleted: `tests/test_runpod_decomposition.py`, `tests/test_direct_runpod_lifecycle.py`, `tests/test_direct_runpod_storage.py`, `tests/gpu_orchestrator/runpod/test_lifecycle.py`, `tests/gpu_orchestrator/runpod/test_storage.py`, `tests/gpu_orchestrator/runpod/test_api.py`, `tests/gpu_orchestrator/runpod/test_client.py`.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "`tests/gpu_orchestrator/runpod/test_startup_script.py` is KEPT (still present, still green) \u2014 it tests the module that stays in-tree.",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "A new file `gpu_orchestrator/worker_spawner.py` exists and exposes the adapter class used by `control_loop.py`.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "No commits land on `main` of either `reigh-worker-orchestrator` or `reigh-worker`. Changes live on branches named `runpod-lifecycle-migration` pushed to origin.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "No secrets (contents of `.env`, API keys, RunPod tokens) appear in any commit across the three repos. `git log -p` / search for `RUNPOD_API_KEY=` literal values returns nothing.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "No `.venv/`, `.pytest_cache/`, or `__pycache__/` directories are committed to the `runpod-lifecycle` repo.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "The reigh-worker uncommitted changes present before migration remain unmodified after migration (same files dirty, same diff content \u2014 verified via `git status` comparison).",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "Consumer imports map exactly per the brief: `create_runpod_client()` \u2192 `RunPodConfig.from_env()`, `terminate_worker` \u2192 `runpod_lifecycle.terminate`, `get_pod_status` \u2192 `runpod_lifecycle.api.get_pod_status`, `create_pod_and_wait` \u2192 `runpod_lifecycle.api.create_pod`, `get_pod_ssh_details` \u2192 `runpod_lifecycle.api.get_pod_ssh_details`, `get_network_volumes` \u2192 `runpod_lifecycle.get_network_volumes`.",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "Adapter preserves: RAM-tier fallback in spawn, storage-volume fallback in spawn, and startup-script injection from `gpu_orchestrator/runpod/startup_script.py`. Code paths remain structurally identical to pre-migration.",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "`control_loop.py`'s 23 observed `self.runpod.*` call sites all resolve against the new adapter surface \u2014 no AttributeError on import or instantiation.",
+      "priority": "must",
+      "requires": [
+        "run_tests",
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "If package exports had gaps, a `v0.1.1` tag exists on GitHub and both consumer repos pin to `@v0.1.1`; otherwise both pin to `@v0.1.0`.",
+      "priority": "should",
+      "requires": [
+        "run_shell",
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "Adapter file (`worker_spawner.py`) is under ~400 lines and contains no unrelated refactors \u2014 purely a translation layer over `runpod_lifecycle` + Supabase writes + fallbacks.",
+      "priority": "should",
+      "requires": [
+        "read_files",
+        "subjective_judgment"
+      ]
+    },
+    {
+      "criterion": "Live smoke: spawn a worker, observe it reaches Ready, terminate it. Exercises RAM-tier + storage-volume + startup-script paths that unit tests don't cover.",
+      "priority": "info",
+      "requires": [
+        "verify_physical_device"
+      ]
+    }
+  ],
+  "assumptions": [
+    "Assumption: package `src/runpod_lifecycle/__init__.py` exports at least `RunPodConfig`, `launch`, `terminate`, `list_pods`, `find_orphans`, `get_network_volumes`, plus submodules `api` (with `create_pod`, `get_pod_status`, `get_pod_ssh_details`) and `ssh` (with an `SSHClient`-equivalent) \u2014 matching the brief's prescribed call shapes. Gaps fall back to Step 9 (v0.1.1 bump) or a consumer shim.",
+    "Assumption: runpod-lifecycle's existing test suite is already green (the brief says `expect 50+ passed`), so the package publish step treats it as a gate, not a fix-up phase.",
+    "Assumption: `startup_script.py` stays in `gpu_orchestrator/runpod/` with a trimmed `__init__.py` that only re-exports from it; I will not move it to a new location just to eliminate the subdirectory (minimizing diff in preserved paths).",
+    "Assumption: `tests/gpu_orchestrator/runpod/test_startup_script.py` (89 lines, tests the surviving module) is KEPT \u2014 not included in the bulk delete even though it matches the brief's `test_*.py` glob under that directory.",
+    "Assumption: the orchestrator's `WorkerSpawnerAdapter` preserves the exact method names used today (`spawn_worker`, `start_worker_process`, `terminate_worker`, `check_and_initialize_worker`, `get_pod_status`, `generate_worker_id`, `check_storage_health`, `_get_storage_volume_id`, `_expand_network_volume`) so `control_loop.py`'s ~23 call sites need no behavioral rewrite \u2014 only the constructor at line 44 changes.",
+    "Assumption: migration branches on both consumer repos are named `runpod-lifecycle-migration` (per brief) and only pushed to `origin`; no PR opened automatically. The human opens PRs after reviewing the branch.",
+    "Assumption: `reigh-worker`'s uncommitted changes do not overlap with the migration targets (`scripts/live_test/config.py`, `scripts/live_test/variant_fresh.py`, `scripts/live_test/variant_update.py`, `debug/commands/storage.py`, `debug/commands/runpod.py`). If overlap exists, the plan pauses until the human resolves it.",
+    "Assumption: `gh` CLI is authenticated with write access to the `banodoco` org \u2014 `gh repo create banodoco/...` will succeed. If not, Phase 1 pauses.",
+    "Assumption: `v0.1.0` installs cleanly via `pip install 'runpod-lifecycle @ git+https://github.com/banodoco/runpod-lifecycle@v0.1.0'` on both consumer repos' Python versions (package supports 3.11+; orchestrator is likely 3.11 or 3.12)."
+  ],
+  "structure_warnings": []
+}

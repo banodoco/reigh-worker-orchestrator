@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "timestamp": "2026-04-27T23:06:24Z",
+  "hash": "sha256:a7b176c2167fab0d3da6c79498ed794662afed713e5f4f7a62bf93d7c0c21cef",
+  "questions": [
+    "Should the sentinel hash also include `pyproject.toml`? `uv sync` consults it, but in this repo `uv.lock` is generated *from* `pyproject.toml` so any meaningful change re-hashes the lockfile. The brief explicitly lists only uv.lock + python + extras + uv version, so I'm following that exactly \u2014 flagging in case you want belt-and-braces.",
+    "Is `sha256sum` guaranteed available on the RunPod base image? It ships in coreutils on every Ubuntu image we've seen, but if there's a known stripped image please confirm so we can fall back to `python3 -c 'import hashlib \u2026'`.",
+    "Should the skip path also run a *very* cheap sanity check that `.venv/bin/python` actually exists, or is leaving that to the existing `=== VALIDATING IMPORTS ===` block sufficient? The brief says imports remain the safety net; I'm keeping the skip path purely hash-driven for simplicity unless you'd rather double-belt it."
+  ],
+  "success_criteria": [
+    {
+      "criterion": "`tests/gpu_orchestrator/runpod/test_startup_script.py` passes, including the existing `test_rendered_startup_script_bootstraps_uv_and_runs_locked_sync` (proving the literal `uv sync --locked --python 3.10 --extra cuda124` invocation is preserved) and a new test asserting the sentinel-skip contract.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "The full `pytest tests/gpu_orchestrator` suite passes \u2014 no collateral regression.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "The rendered startup script parses cleanly under `bash -n` (no shell syntax errors introduced).",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "The sentinel hash input pipeline references all four required inputs in the rendered script: `uv.lock` contents (via `sha256sum uv.lock`), `python: 3.10`, `extras: cuda124`, and `\"$UV_BIN\" --version` output.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "The sentinel file path in the rendered script is `.venv/.sync-inputs` (under `.venv/` so deleting `.venv` self-heals).",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "The sentinel is written only *after* the `\"$UV_BIN\" sync --locked \u2026` line in the rendered script, and any prior sentinel is `rm -f`'d *before* the sync runs (so an interrupted sync leaves no stale marker; `set -e` ensures the post-sync write is unreachable on failure).",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "`update_worker_phase \"deps_verified\"` appears exactly once and sits *after* the closing `fi` of the new if/else \u2014 so it fires on both skip and sync paths.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "On first-time provisioning (no `.venv`, no sentinel), the rendered logic falls through to the full sync path \u2014 verifiable by inspecting the `if [ -d .venv ] && [ -f \"$SYNC_SENTINEL\" ]` guard.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "The submodule reconcile block at lines 270\u2013293 of `worker_startup.template.sh` is unchanged in the diff.",
+      "priority": "must",
+      "requires": [
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "The skip-path log line is human-readable and includes the computed hash and uv version (so log readers can diagnose unexpected skips/non-skips at a glance).",
+      "priority": "should",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "On a real warm worker boot with unchanged `uv.lock`, the worker startup log shows the `\u23ed\ufe0f  Skipping uv sync` line and the boot is materially faster (\u224890 s saved); on a cold boot or post-lockfile-edit boot it shows the `\u2705 uv sync complete; \u2026refreshed` line.",
+      "priority": "info",
+      "requires": [
+        "observe_runtime_logs"
+      ]
+    }
+  ],
+  "assumptions": [
+    "The RunPod base image has `sha256sum` available (standard coreutils \u2014 every Ubuntu/Debian-based image ships it).",
+    "`uv.lock` lives at the repo root (the same directory the script `cd`s into via `WORKDIR` at line 241), so `sha256sum uv.lock` resolves correctly at the point the new block runs.",
+    "Including `pyproject.toml` in the hash is unnecessary because `uv.lock` is generated from it \u2014 any change that affects resolution will produce a different `uv.lock`. The brief's enumeration (lock + python + extras + uv version) is taken as authoritative.",
+    "`set -e` (line 2) is sufficient to prevent the sentinel write on a failed `uv sync`; no explicit exit-code check is needed inside the new block.",
+    "Python `3.10` and extra `cuda124` are baked into the template literally (as they are today at line 343) \u2014 they are not parameterized via `__\u2026__` substitution, so hashing the literal strings `python: 3.10` and `extras: cuda124` is correct and stays in sync with the actual sync invocation by being colocated in the same edit.",
+    "The `=== VALIDATING IMPORTS ===` block at line ~349 remains the runtime safety net for a broken venv \u2014 the skip path does NOT need its own venv-health check.",
+    "Log lines append to `$LOG_FILE` (the existing pattern); no orchestrator-side parser keys off the exact wording of the old `\u2705 uv sync complete; sentinel refreshed` line \u2014 so changing the wording is safe. (If a parser does exist, the new wording still contains `uv sync complete`.)"
+  ],
+  "structure_warnings": [
+    "Each step section should include at least one numbered substep."
+  ]
+}

@@ -4,12 +4,6 @@
     "output": {
       "type": "string"
     },
-    "files_changed": {
-      "type": "array",
-      "items": {
-        "type": "string"
-      }
-    },
     "commands_run": {
       "type": "array",
       "items": {
@@ -41,32 +35,62 @@
           "executor_notes": {
             "type": "string"
           },
-          "files_changed": {
+          "sections_written": {
             "type": "array",
             "items": {
               "type": "string"
             }
           },
-          "commands_run": {
-            "type": "array",
-            "items": {
-              "type": "string"
-            }
-          },
-          "auto_attributed_files": {
+          "stance": {
             "type": [
-              "boolean",
+              "object",
               "null"
-            ]
+            ],
+            "properties": {
+              "challenge_engaged": {
+                "type": "string"
+              },
+              "angle_taken": {
+                "type": "string"
+              },
+              "what_changed": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "challenge_engaged",
+              "angle_taken",
+              "what_changed"
+            ],
+            "additionalProperties": false
+          },
+          "stop_signal": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "requested": {
+                "type": "boolean"
+              },
+              "defense": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "requested",
+              "defense"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
           "task_id",
           "status",
           "executor_notes",
-          "files_changed",
-          "commands_run",
-          "auto_attributed_files"
+          "sections_written",
+          "stance",
+          "stop_signal"
         ],
         "additionalProperties": false
       }
@@ -89,15 +113,21 @@
         ],
         "additionalProperties": false
       }
+    },
+    "sections_written": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
     }
   },
   "required": [
     "output",
-    "files_changed",
     "commands_run",
     "deviations",
     "task_updates",
-    "sense_check_acknowledgments"
+    "sense_check_acknowledgments",
+    "sections_written"
   ],
   "additionalProperties": false
 }

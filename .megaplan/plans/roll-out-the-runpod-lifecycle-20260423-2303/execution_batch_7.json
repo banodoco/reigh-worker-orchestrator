@@ -1,0 +1,62 @@
+{
+  "output": "Batch 7 completed. The obsolete in-tree RunPod implementation was removed from the orchestrator repo, the surviving `gpu_orchestrator.runpod` package was reduced to `startup_script` only, and the remaining tests/mocks were retargeted to the async `WorkerSpawnerAdapter` surface. Verification for this batch passed: the `create_runpod_client` / `RunpodClient` grep returned no matches, the `gpu_orchestrator.runpod.{api,client,lifecycle,storage,ssh}` import grep now only returns the intentional `startup_script` imports, and the touched Python files compiled cleanly.",
+  "deviations": [
+    "Deleted `gpu_orchestrator/runpod_client.py` and updated `tests/test_module_import_coverage.py` as a necessary companion cleanup so the required `create_runpod_client` / `RunpodClient` grep gate could actually reach zero outside deleted legacy files.",
+    "Updated `tests/scripts/test_debug_services.py` in this batch even though it was not named explicitly in T8, because T6 changed the debug worker service from `create_runpod_client(...)` to `create_worker_spawner(...)` and the old monkeypatch would otherwise be stale.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_1.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_2.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_3.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_5.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_6.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_7.json, reigh-worker-orchestrator/gpu_orchestrator/control_loop.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/__init__.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/api.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/client.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/lifecycle.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/ssh.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/storage.py, reigh-worker-orchestrator/gpu_orchestrator/runpod_client.py, reigh-worker-orchestrator/gpu_orchestrator/worker_spawner.py, reigh-worker-orchestrator/scripts/debug/commands/runpod.py, reigh-worker-orchestrator/scripts/debug/commands/storage.py, reigh-worker-orchestrator/scripts/debug/services/workers.py, reigh-worker-orchestrator/scripts/shutdown_all_workers.py, reigh-worker-orchestrator/scripts/spawn_gpu.py, reigh-worker-orchestrator/scripts/ssh_to_worker.py, reigh-worker-orchestrator/scripts/terminate_single_worker.py, reigh-worker-orchestrator/scripts/test_runpod.py, reigh-worker-orchestrator/tests/gpu_orchestrator/control/phases/test_lifecycle.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_api.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_client.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_lifecycle.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_storage.py, reigh-worker-orchestrator/tests/scripts/test_debug_services.py, reigh-worker-orchestrator/tests/test_direct_runpod_lifecycle.py, reigh-worker-orchestrator/tests/test_direct_runpod_storage.py, reigh-worker-orchestrator/tests/test_module_import_coverage.py, reigh-worker-orchestrator/tests/test_runpod_decomposition.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .claude/",
+    "Advisory audit finding: Sense check SC9 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC10 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC11 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC12 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC13 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC14 is missing an executor acknowledgment."
+  ],
+  "task_updates": [
+    {
+      "task_id": "T8",
+      "status": "done",
+      "executor_notes": "Deleted the obsolete in-tree RunPod implementation files from `gpu_orchestrator/runpod/`: `api.py`, `client.py`, `lifecycle.py`, `storage.py`, and `ssh.py`. Kept `gpu_orchestrator/runpod/startup_script.py` in place and trimmed `gpu_orchestrator/runpod/__init__.py` so it re-exports only `startup_script`. Deleted the obsolete tests exactly as intended: `tests/test_runpod_decomposition.py`, `tests/test_direct_runpod_lifecycle.py`, `tests/test_direct_runpod_storage.py`, and `tests/gpu_orchestrator/runpod/test_{api,client,lifecycle,storage}.py`. Kept `tests/gpu_orchestrator/runpod/test_startup_script.py`. Updated `tests/gpu_orchestrator/control/phases/test_lifecycle.py` so `host.runpod` is `Mock(spec=WorkerSpawnerAdapter)` and every async adapter method on that mock is an `AsyncMock`, while `generate_worker_id` remains a plain sync `Mock`. Also updated `tests/scripts/test_debug_services.py` to monkeypatch `create_worker_spawner(...)` instead of the removed `create_runpod_client(...)`, and removed `gpu_orchestrator.runpod_client` from `tests/test_module_import_coverage.py` after deleting the compatibility facade `gpu_orchestrator/runpod_client.py`. Verification: `rg -n \"create_runpod_client|RunpodClient\" . -g '*.py'` returned no matches; `rg -n \"gpu_orchestrator\\.runpod\\.(api|client|lifecycle|storage|ssh)|from gpu_orchestrator\\.runpod import|from gpu_orchestrator\\.runpod\\.\" . -g '*.py'` now returns only the intentional `startup_script` imports in `gpu_orchestrator/worker_spawner.py` and `tests/gpu_orchestrator/runpod/test_startup_script.py`; `ls` confirmed only `__init__.py`, `startup_script.py`, and the template remain under `gpu_orchestrator/runpod/`, while only `test_startup_script.py` remains under `tests/gpu_orchestrator/runpod/`; and `python -m py_compile gpu_orchestrator/runpod/__init__.py tests/gpu_orchestrator/control/phases/test_lifecycle.py tests/scripts/test_debug_services.py tests/test_module_import_coverage.py` exited 0.",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/runpod/__init__.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/runpod/api.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/runpod/client.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/runpod/lifecycle.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/runpod/storage.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/runpod/ssh.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/runpod_client.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/gpu_orchestrator/control/phases/test_lifecycle.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/scripts/test_debug_services.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/test_module_import_coverage.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/test_runpod_decomposition.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/test_direct_runpod_lifecycle.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/test_direct_runpod_storage.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_api.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_client.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_lifecycle.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_storage.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_7.json"
+      ],
+      "commands_run": [
+        "rg -n \"create_runpod_client|RunpodClient|gpu_orchestrator\\.runpod\\.(api|client|lifecycle|storage|ssh)|from gpu_orchestrator\\.runpod import|from gpu_orchestrator\\.runpod\\.\" . -g '*.py'",
+        "sed -n '1,240p' gpu_orchestrator/runpod/__init__.py",
+        "sed -n '1,220p' tests/gpu_orchestrator/control/phases/test_lifecycle.py",
+        "ls tests/gpu_orchestrator/runpod && ls gpu_orchestrator/runpod",
+        "sed -n '1,200p' gpu_orchestrator/runpod_client.py",
+        "sed -n '1,220p' tests/scripts/test_debug_services.py",
+        "sed -n '1,140p' tests/test_module_import_coverage.py",
+        "rg -n \"create_runpod_client|RunpodClient\" . -g '*.py'",
+        "rg -n \"gpu_orchestrator\\.runpod\\.(api|client|lifecycle|storage|ssh)|from gpu_orchestrator\\.runpod import|from gpu_orchestrator\\.runpod\\.\" . -g '*.py'",
+        "ls gpu_orchestrator/runpod && ls tests/gpu_orchestrator/runpod",
+        "python -m py_compile gpu_orchestrator/runpod/__init__.py tests/gpu_orchestrator/control/phases/test_lifecycle.py tests/scripts/test_debug_services.py tests/test_module_import_coverage.py",
+        "git status --short --untracked-files=all"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC8",
+      "executor_note": "Yes. `gpu_orchestrator/runpod/{api,client,lifecycle,storage,ssh}.py` are deleted, `startup_script.py` is retained, and `gpu_orchestrator/runpod/__init__.py` now re-exports only `startup_script`. The obsolete runpod tests were deleted while `tests/gpu_orchestrator/runpod/test_startup_script.py` was kept. `tests/gpu_orchestrator/control/phases/test_lifecycle.py` now uses `Mock(spec=WorkerSpawnerAdapter)` with `AsyncMock` for the async adapter methods and a plain `Mock` for `generate_worker_id`. The `create_runpod_client` / `RunpodClient` grep is empty after deleting the legacy facade and updating the remaining supporting tests."
+    }
+  ]
+}

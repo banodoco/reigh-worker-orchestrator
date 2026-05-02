@@ -1,0 +1,86 @@
+{
+  "review_verdict": "approved",
+  "checks": [],
+  "pre_check_flags": [],
+  "verified_flag_ids": [],
+  "disputed_flag_ids": [],
+  "criteria": [
+    {
+      "name": "`tests/gpu_orchestrator/runpod/test_startup_script.py` passes, including the existing `test_rendered_startup_script_bootstraps_uv_and_runs_locked_sync` (proving the literal `uv sync --locked --python 3.10 --extra cuda124` invocation is preserved) and a new test asserting the sentinel-skip contract.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "The full `pytest tests/gpu_orchestrator` suite passes \u2014 no collateral regression.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "The rendered startup script parses cleanly under `bash -n` (no shell syntax errors introduced).",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "The sentinel hash input pipeline references all five required inputs in the rendered script: `uv.lock` contents (via `sha256sum uv.lock`), `pyproject.toml` contents (via `sha256sum pyproject.toml`), `python: 3.10`, `extras: cuda124`, and `\"$UV_BIN\" --version` output.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "`pyproject.toml` is included in the sentinel hash so that any edit to it forces the sync path to run, preserving `uv sync --locked` as the backstop against pyproject/lock drift (FLAG-001).",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "The sentinel file path in the rendered script is `.venv/.sync-inputs` (under `.venv/` so deleting `.venv` self-heals).",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "The sentinel is written only *after* the `\"$UV_BIN\" sync --locked \u2026` line in the rendered script, and any prior sentinel is `rm -f`'d *before* the sync runs (so an interrupted sync leaves no stale marker; `set -e` ensures the post-sync write is unreachable on failure).",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "`update_worker_phase \"deps_verified\"` appears exactly once and sits *after* the closing `fi` of the new if/else \u2014 so it fires on both skip and sync paths.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "On first-time provisioning (no `.venv`, no sentinel), the rendered logic falls through to the full sync path \u2014 verifiable by inspecting the `if [ -d .venv ] && [ -f \"$SYNC_SENTINEL\" ]` guard.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "The submodule reconcile block at lines 270\u2013293 of `worker_startup.template.sh` is unchanged in the diff.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "The skip-path log line is human-readable and includes the computed hash and uv version (so log readers can diagnose unexpected skips/non-skips at a glance).",
+      "priority": "should",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "On a real warm worker boot with unchanged `uv.lock` and `pyproject.toml`, the worker startup log shows the `\u23ed\ufe0f  Skipping uv sync` line and the boot is materially faster (\u224890 s saved); on a cold boot or post-lockfile/pyproject-edit boot it shows the `\u2705 uv sync complete; \u2026refreshed` line.",
+      "priority": "info",
+      "pass": "deferred_human",
+      "evidence": "Requires human verification capabilities."
+    }
+  ],
+  "issues": [],
+  "rework_items": [],
+  "summary": "Light robustness: review skipped; stub written for artifact parity.",
+  "task_verdicts": [],
+  "sense_check_verdicts": []
+}

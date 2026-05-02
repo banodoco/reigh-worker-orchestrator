@@ -1,0 +1,154 @@
+{
+  "name": "auto-heal-uv-lockfile-drift-20260428-0136",
+  "idea": "# Auto-heal uv lockfile drift in worker startup\n\n## Goal\n\nExtend the existing sentinel-skip block in `gpu_orchestrator/runpod/worker_startup.template.sh` so that when `uv sync --locked` fails specifically because the lockfile is out of date relative to `pyproject.toml`, the pod regenerates the lock in-place and proceeds \u2014 instead of failing the whole startup script.\n\n## Background / context\n\nThe recent commit `550e53a` added a sentinel-skip optimization: if `.venv/.sync-inputs` matches a hash of `(uv.lock + pyproject.toml + python + extras + uv version)`, the pod skips `uv sync` entirely.\n\nToday, the sync block is:\n\n```sh\nif [ \"$SYNC_SKIPPED\" = \"1\" ]; then\n    echo \"\u23ed\ufe0f  Skipping uv sync: ...\" >> \"$LOG_FILE\" 2>&1\nelse\n    rm -f \"$SYNC_SENTINEL\" 2>/dev/null || true\n    \"$UV_BIN\" sync --locked --python 3.10 --extra cuda124 >> \"$LOG_FILE\" 2>&1\n    printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"\n    echo \"\u2705 uv sync complete; ...\" >> \"$LOG_FILE\" 2>&1\nfi\n```\n\nCurrently we just confirmed in production that when reigh-worker's `uv.lock` is stale relative to its `pyproject.toml`, `uv sync --locked` fails with:\n\n```\nThe lockfile at `uv.lock` needs to be updated, but `--locked` was provided. To update the lockfile, run `uv lock`.\n```\n\n\u2026and the entire startup script aborts. The pod never reaches `deps_verified`, never launches the worker process, and is eventually failsafe-killed. Every newly-spawned pod re-fails identically until someone manually pushes a refreshed lockfile.\n\n## What to change\n\nIn `gpu_orchestrator/runpod/worker_startup.template.sh`, replace the current single `\"$UV_BIN\" sync --locked ...` invocation in the `else` branch with logic that:\n\n1. Captures `uv sync --locked` output (to a temp file is fine) so it can be both logged AND inspected.\n2. On success: same as today \u2014 write the sentinel hash, log success.\n3. On failure: inspect the captured output. If it contains the marker `lockfile` AND the sync exit code was non-zero AND the marker indicates lockfile-needs-update (e.g. matches `lockfile.*needs to be updated` OR `lockfile is out of date` \u2014 match what `uv` actually emits), then take the **auto-heal path**:\n   - Echo a clearly-labeled warning to `$LOG_FILE`, e.g. `\u26a0\ufe0f  Lockfile drift detected on origin/main; regenerating lockfile in-pod and re-syncing (visit reigh-worker CI to fix upstream)`.\n   - Run `\"$UV_BIN\" lock --python 3.10 >> \"$LOG_FILE\" 2>&1`. If this fails, hard-fail the script (real lock-resolution problem).\n   - Run `\"$UV_BIN\" sync --python 3.10 --extra cuda124 >> \"$LOG_FILE\" 2>&1` (NOTE: no `--locked` on the recovery sync). If this fails, hard-fail.\n   - On recovery success: write the sentinel hash with the **current on-disk inputs hash** (recompute after `uv lock` regenerates `uv.lock`, since the lock file content has changed). Log a distinct success line, e.g. `\u2705 uv sync complete via auto-heal; sentinel refreshed (post-heal hash=<H>)`.\n4. On failure that is **not** lockfile drift: hard-fail as today (preserve the current behavior of `set -e` etc \u2014 do not swallow real errors).\n\n## Sentinel correctness\n\nThe sentinel hash on disk after auto-heal MUST reflect the regenerated lockfile, not the stale upstream lockfile. That way: on a subsequent boot of the same pod-volume where `git pull` has not yet picked up an upstream fix, the recomputed hash from origin's stale lock will mismatch the sentinel \u2192 sync runs again \u2192 auto-heal runs again. This is correct: each boot self-heals while drift persists, with no silent \"fast-path with wrong env\" risk.\n\nWhen upstream lockfile is repaired (matches pyproject.toml), the sentinel hash stored from the last successful run will match the freshly-pulled inputs \u2192 fast-path resumes immediately.\n\n## Visibility\n\nThe auto-heal path MUST log a clearly distinct, greppable line so an operator scanning pod logs knows drift was self-healed. Suggested marker: `\u26a0\ufe0f  Lockfile drift detected` (or similar \u2014 pick something stable). Do not emit Sentry/external alerts; logs are sufficient for now.\n\n## Out of scope\n\n- Do not change anything outside `worker_startup.template.sh` and its test file.\n- Do not modify the existing sentinel-skip fast path \u2014 it already does the right thing when no sync is needed.\n- Do not add Sentry/Slack alerting; the visible log line is sufficient for this iteration.\n- Do not change reigh-worker's CI gate or branch protection; that's a separate, complementary fix.\n\n## Verification\n\nAdd a test in `tests/gpu_orchestrator/runpod/test_startup_script.py` that renders the script and asserts the expected structure:\n- A `lockfile.*needs to be updated` (or whatever the chosen pattern) check exists in the script.\n- The auto-heal path runs `uv lock` then `uv sync` (without `--locked`).\n- The sentinel-write happens **after** a successful recovery sync (not after `uv lock` alone).\n- The warning marker line is present in the rendered script.\n\nThe existing test `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` should continue to pass \u2014 sentinel-skip behavior must be preserved.\n\n## Constraints\n\n- Match the existing shell style in the template \u2014 bash-3-compatible constructs, no bashisms beyond what's already used.\n- Keep idempotency: re-running the startup script on a healthy volume should still skip via the sentinel.\n- Do not add any new top-level dependencies or external tools \u2014 `uv` is already on the pod.",
+  "current_state": "done",
+  "iteration": 2,
+  "created_at": "2026-04-27T23:36:22Z",
+  "config": {
+    "project_dir": "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator",
+    "auto_approve": false,
+    "robustness": "light",
+    "mode": "code",
+    "agent": ""
+  },
+  "sessions": {
+    "claude_planner": {
+      "id": "b10d07ba-3d86-43d3-a3eb-b3d1272c86ec",
+      "mode": "persistent",
+      "created_at": "2026-04-27T23:38:01Z",
+      "last_used_at": "2026-04-27T23:40:53Z",
+      "refreshed": false
+    },
+    "codex_critic": {
+      "id": "019dd14e-cc42-7923-885c-78fdd6a7c23e",
+      "mode": "persistent",
+      "created_at": "2026-04-27T23:39:15Z",
+      "last_used_at": "2026-04-27T23:39:15Z",
+      "refreshed": false
+    },
+    "claude_finalizer": {
+      "id": "ac005891-afd4-411a-994b-dbad559f95fd",
+      "mode": "persistent",
+      "created_at": "2026-04-27T23:42:36Z",
+      "last_used_at": "2026-04-27T23:42:36Z",
+      "refreshed": false
+    },
+    "codex_executor": {
+      "id": "019dd152-d6d2-7023-baf3-b092dd30d812",
+      "mode": "persistent",
+      "created_at": "2026-04-27T23:44:23Z",
+      "last_used_at": "2026-04-27T23:47:41Z",
+      "refreshed": false
+    }
+  },
+  "plan_versions": [
+    {
+      "version": 1,
+      "file": "plan_v1.md",
+      "hash": "sha256:2fe3bb43309af13e07d433b1b2424c41f3065f0a3ceed359ec00415e9417b3ac",
+      "timestamp": "2026-04-27T23:38:01Z"
+    },
+    {
+      "version": 2,
+      "file": "plan_v2.md",
+      "hash": "sha256:3e47283ddb89956a7e9029b860aa6b5c187b8299cff232a3f1c359409c5c474b",
+      "timestamp": "2026-04-27T23:40:53Z"
+    }
+  ],
+  "history": [
+    {
+      "step": "init",
+      "timestamp": "2026-04-27T23:36:22Z",
+      "duration_ms": 0,
+      "cost_usd": 0.0,
+      "result": "success",
+      "environment": {
+        "claude": true,
+        "codex": true
+      }
+    },
+    {
+      "step": "plan",
+      "timestamp": "2026-04-27T23:38:01Z",
+      "duration_ms": 91618,
+      "cost_usd": 0.46106,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "b10d07ba-3d86-43d3-a3eb-b3d1272c86ec",
+      "agent": "claude",
+      "output_file": "plan_v1.md",
+      "artifact_hash": "sha256:2fe3bb43309af13e07d433b1b2424c41f3065f0a3ceed359ec00415e9417b3ac"
+    },
+    {
+      "step": "critique",
+      "timestamp": "2026-04-27T23:39:15Z",
+      "duration_ms": 60840,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019dd14e-cc42-7923-885c-78fdd6a7c23e",
+      "agent": "codex",
+      "output_file": "critique_v1.json",
+      "artifact_hash": "sha256:9fe503bdc3f75694e614ed67a1aa0fc69772fe2b3dcfba90262d28f67bdc04ba",
+      "flags_count": 3
+    },
+    {
+      "step": "revise",
+      "timestamp": "2026-04-27T23:40:53Z",
+      "duration_ms": 92734,
+      "cost_usd": 0.51550025,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "b10d07ba-3d86-43d3-a3eb-b3d1272c86ec",
+      "agent": "claude",
+      "output_file": "plan_v2.md",
+      "artifact_hash": "sha256:3e47283ddb89956a7e9029b860aa6b5c187b8299cff232a3f1c359409c5c474b",
+      "flags_addressed": []
+    },
+    {
+      "step": "finalize",
+      "timestamp": "2026-04-27T23:42:36Z",
+      "duration_ms": 95696,
+      "cost_usd": 0.37213999999999997,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "ac005891-afd4-411a-994b-dbad559f95fd",
+      "agent": "claude",
+      "output_file": "finalize.json",
+      "artifact_hash": "sha256:e12e90a94665de803ff789b3565bb894a80d44984723bad676120779cf1a7047"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-04-27T23:47:41Z",
+      "duration_ms": 301107,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019dd152-d6d2-7023-baf3-b092dd30d812",
+      "agent": "codex",
+      "output_file": "execution.json",
+      "artifact_hash": "sha256:26a8704a193f3223bf3b2ae82c926d24ebdfe64714e4e8a3733ac46b91da0e73",
+      "finalize_hash": "sha256:6282a57e4d1111b11dcd6c869ed06abe6d7d74366394e0c6f38ce73a80b6b078",
+      "approval_mode": "user_approved"
+    }
+  ],
+  "meta": {
+    "significant_counts": [
+      0
+    ],
+    "weighted_scores": [],
+    "plan_deltas": [
+      55.22
+    ],
+    "recurring_critiques": [
+      []
+    ],
+    "total_cost_usd": 1.3487,
+    "overrides": [],
+    "notes": [],
+    "user_approved_gate": true
+  },
+  "last_gate": {
+    "recommendation": "ITERATE"
+  }
+}

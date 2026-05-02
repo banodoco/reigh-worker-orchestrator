@@ -1,0 +1,27 @@
+{
+  "flags": [
+    {
+      "id": "FLAG-001",
+      "concern": "Dependency-sync sentinel: the planned hash omits `pyproject.toml`, so the skip path can bypass the existing `uv sync --locked` backstop for project metadata or dependency-spec drift where `pyproject.toml` changes but `uv.lock` does not. The plan explicitly assumes `uv.lock` is sufficient, but the rendered startup script's current protection is the actual `\"$UV_BIN\" sync --locked --python 3.10 --extra cuda124` invocation at `gpu_orchestrator/runpod/worker_startup.template.sh:343`; skipping that command means `--locked` never gets a chance to reject an out-of-date lockfile. Include `pyproject.toml` content in the sentinel hash, or otherwise run a cheap locked freshness check before taking the skip.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "Addressed FLAG-001 by adding `pyproject.toml` contents to the sentinel hash. Without it, a developer edit to `pyproject.toml` that doesn't regenerate `uv.lock` could take the skip path and bypass the `uv sync --locked` backstop that today rejects pyproject/lock drift. Updated the bash block, tests, success criteria, and assumptions accordingly. The earlier \"pyproject not needed\" assumption was inverted; the related question is now resolved.",
+      "raised_in": "critique_v1.json",
+      "status": "addressed",
+      "severity": "significant",
+      "verified": false,
+      "addressed_in": "plan_v2.md"
+    },
+    {
+      "id": "verifiability-0",
+      "concern": "Criterion 10: requires human verification (observe_runtime_logs).",
+      "category": "other",
+      "severity_hint": "likely-minor",
+      "evidence": "",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "minor",
+      "verified": false
+    }
+  ]
+}

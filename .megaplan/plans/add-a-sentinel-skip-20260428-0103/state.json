@@ -1,0 +1,160 @@
+{
+  "name": "add-a-sentinel-skip-20260428-0103",
+  "idea": "Add a sentinel-skip optimization to gpu_orchestrator/runpod/worker_startup.template.sh so the worker startup script skips `uv sync` entirely when the persistent volume's .venv already matches the current set of inputs (uv.lock content, --python value, --extra flags, uv binary version). When inputs match the recorded hash, log a clear skip line and proceed; when they don't, run `uv sync --locked` as today and write the sentinel only on success.\n\nCONTEXT FOR THE PLANNER (read this before the plan phase):\nThe script lives in this repo at gpu_orchestrator/runpod/worker_startup.template.sh. The relevant block is around line 342-345 (\"=== DEPENDENCY SYNC (uv) ===\"). The script runs on a RunPod persistent volume reused across pod lifetimes \u2014 the .venv is preserved. Today even when uv.lock isn't drifted, `uv sync --locked` re-resolves all 383 packages every boot (~90s). The goal is to short-circuit that resolve when the venv on disk is already in sync with the inputs.\n\nHARD CONSTRAINTS / LANDMINES:\n- The sentinel hash MUST capture every input that affects venv state: uv.lock content, Python version (--python 3.10), extras flags (--extra cuda124), and the uv binary version itself (output of `uv --version`). Missing any of these means a config drift goes silently undetected.\n- Sentinel is written ONLY after a successful `uv sync` exit code 0. Interrupted syncs must not leave a stale sentinel.\n- Sentinel lives at .venv/.sync-inputs (or similar inside .venv) so deleting .venv self-heals.\n- The downstream \"VALIDATING IMPORTS\" step at template line ~349 stays unchanged \u2014 it remains the safety net for broken venvs.\n- `--locked` must remain in the actual uv sync invocation (when sync runs) so lockfile drift is still caught at the worker layer as a backstop.\n- The sentinel-skip path MUST NOT be taken on first-time provisioning of a fresh persistent volume (no .venv, no sentinel) \u2014 should naturally fall through to full sync.\n- The existing `update_worker_phase \"deps_verified\"` transition at line ~347 must still execute even when sync was skipped \u2014 the orchestrator relies on that phase signal.\n- Do NOT touch the submodule reconcile block (already shipped in commit 134e3ec).\n- Do NOT refactor the broader boot script \u2014 this is targeted.\n\nPRIOR-MISTAKE LANDMINE (critique pass should pressure-test this):\nEarlier today an orchestrator fix used `git submodule status Wan2GP >/dev/null 2>&1` to detect a broken submodule. That command returns exit 0 even on the broken state (just prefixes output with `-`), so the check never fired. The lesson: verify the *actual semantic property* on the filesystem, not an exit code that happens to correlate with it. When designing the sentinel comparison, make sure the comparison is on the right semantic value, not a proxy.",
+  "current_state": "done",
+  "iteration": 2,
+  "created_at": "2026-04-27T23:03:39Z",
+  "config": {
+    "project_dir": "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator",
+    "auto_approve": false,
+    "robustness": "light",
+    "mode": "code",
+    "agent": ""
+  },
+  "sessions": {
+    "claude_planner": {
+      "id": "dadcc817-8c54-453d-b638-d12b9d945b05",
+      "mode": "persistent",
+      "created_at": "2026-04-27T23:06:24Z",
+      "last_used_at": "2026-04-27T23:10:16Z",
+      "refreshed": false
+    },
+    "codex_critic": {
+      "id": "019dd131-d6d3-7840-8583-139bd3239efb",
+      "mode": "persistent",
+      "created_at": "2026-04-27T23:08:11Z",
+      "last_used_at": "2026-04-27T23:08:11Z",
+      "refreshed": false
+    },
+    "claude_finalizer": {
+      "id": "c9d0627e-76ed-49f3-8e39-0c9d58d479c3",
+      "mode": "persistent",
+      "created_at": "2026-04-27T23:11:56Z",
+      "last_used_at": "2026-04-27T23:11:56Z",
+      "refreshed": false
+    },
+    "codex_executor": {
+      "id": "019dd137-d632-7db1-b2e8-e999127c2d82",
+      "mode": "persistent",
+      "created_at": "2026-04-27T23:19:53Z",
+      "last_used_at": "2026-04-27T23:22:47Z",
+      "refreshed": false
+    }
+  },
+  "plan_versions": [
+    {
+      "version": 1,
+      "file": "plan_v1.md",
+      "hash": "sha256:a7b176c2167fab0d3da6c79498ed794662afed713e5f4f7a62bf93d7c0c21cef",
+      "timestamp": "2026-04-27T23:06:24Z"
+    },
+    {
+      "version": 2,
+      "file": "plan_v2.md",
+      "hash": "sha256:0b26c569156bc14fac86093cb05fc32a033b2f33424f097baf4c00706cfafc53",
+      "timestamp": "2026-04-27T23:10:16Z"
+    }
+  ],
+  "history": [
+    {
+      "step": "init",
+      "timestamp": "2026-04-27T23:03:39Z",
+      "duration_ms": 0,
+      "cost_usd": 0.0,
+      "result": "success",
+      "environment": {
+        "claude": true,
+        "codex": true
+      }
+    },
+    {
+      "step": "plan",
+      "timestamp": "2026-04-27T23:06:24Z",
+      "duration_ms": 148920,
+      "cost_usd": 0.7619165,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "dadcc817-8c54-453d-b638-d12b9d945b05",
+      "agent": "claude",
+      "output_file": "plan_v1.md",
+      "artifact_hash": "sha256:a7b176c2167fab0d3da6c79498ed794662afed713e5f4f7a62bf93d7c0c21cef"
+    },
+    {
+      "step": "critique",
+      "timestamp": "2026-04-27T23:08:11Z",
+      "duration_ms": 94557,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019dd131-d6d3-7840-8583-139bd3239efb",
+      "agent": "codex",
+      "output_file": "critique_v1.json",
+      "artifact_hash": "sha256:f6c1bbeeea8ebb24b8729f19737b590d5238ae9188c421e1523b2ccc60bc3911",
+      "flags_count": 2
+    },
+    {
+      "step": "revise",
+      "timestamp": "2026-04-27T23:10:16Z",
+      "duration_ms": 119808,
+      "cost_usd": 0.66175775,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "dadcc817-8c54-453d-b638-d12b9d945b05",
+      "agent": "claude",
+      "output_file": "plan_v2.md",
+      "artifact_hash": "sha256:0b26c569156bc14fac86093cb05fc32a033b2f33424f097baf4c00706cfafc53",
+      "flags_addressed": [
+        {
+          "id": "FLAG-001",
+          "resolution": "addressed",
+          "reason": "Added pyproject.toml contents to the sentinel hash inputs (sha256sum pyproject.toml). This guarantees that any pyproject.toml edit routes through the sync path where `uv sync --locked` still evaluates lockfile drift, preserving the current worker-layer backstop. Also added a `pyproject-sha256: MISSING` deterministic fallback for safety, a new test assertion for `sha256sum pyproject.toml`, a new `must` success criterion covering pyproject.toml, and inverted the prior assumption."
+        }
+      ]
+    },
+    {
+      "step": "finalize",
+      "timestamp": "2026-04-27T23:11:56Z",
+      "duration_ms": 91389,
+      "cost_usd": 0.58826425,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "c9d0627e-76ed-49f3-8e39-0c9d58d479c3",
+      "agent": "claude",
+      "output_file": "finalize.json",
+      "artifact_hash": "sha256:f96264b36992bbdae08a16392abf1a6e24e6b2176c5784cea723c474bb680601"
+    },
+    {
+      "step": "execute",
+      "timestamp": "2026-04-27T23:22:47Z",
+      "duration_ms": 577196,
+      "cost_usd": 0.0,
+      "result": "success",
+      "session_mode": "persistent",
+      "session_id": "019dd137-d632-7db1-b2e8-e999127c2d82",
+      "agent": "codex",
+      "output_file": "execution.json",
+      "artifact_hash": "sha256:23bb59c85ed3648b36e8d93936ac9db999cb484ad31428ae11867359972bb8ea",
+      "finalize_hash": "sha256:5070dd7d3255f6254dc3fbfe35bd66fef04b54f83fff243a8159b150424c7f80",
+      "approval_mode": "user_approved"
+    }
+  ],
+  "meta": {
+    "significant_counts": [
+      1
+    ],
+    "weighted_scores": [],
+    "plan_deltas": [
+      13.27
+    ],
+    "recurring_critiques": [
+      []
+    ],
+    "total_cost_usd": 2.011938,
+    "overrides": [],
+    "notes": [],
+    "user_approved_gate": true
+  },
+  "last_gate": {
+    "recommendation": "ITERATE"
+  }
+}

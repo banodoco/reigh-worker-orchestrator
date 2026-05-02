@@ -1,0 +1,14 @@
+{
+  "checks": [],
+  "flags": [
+    {
+      "id": "FLAG-001",
+      "concern": "Dependency-sync sentinel: the planned hash omits `pyproject.toml`, so the skip path can bypass the existing `uv sync --locked` backstop for project metadata or dependency-spec drift where `pyproject.toml` changes but `uv.lock` does not. The plan explicitly assumes `uv.lock` is sufficient, but the rendered startup script's current protection is the actual `\"$UV_BIN\" sync --locked --python 3.10 --extra cuda124` invocation at `gpu_orchestrator/runpod/worker_startup.template.sh:343`; skipping that command means `--locked` never gets a chance to reject an out-of-date lockfile. Include `pyproject.toml` content in the sentinel hash, or otherwise run a cheap locked freshness check before taking the skip.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "Plan Step 2 hashes only `uv --version`, `python: 3.10`, `extras: cuda124`, and `sha256sum uv.lock`, and its metadata assumption says including `pyproject.toml` is unnecessary. The current template relies on `uv sync --locked --python 3.10 --extra cuda124` at lines 342-345 as the worker-layer lockfile-drift backstop."
+    }
+  ],
+  "verified_flag_ids": [],
+  "disputed_flag_ids": []
+}

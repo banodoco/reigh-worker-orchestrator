@@ -1,0 +1,78 @@
+{
+  "output": "T5 completed. `gpu_orchestrator/worker_spawner.py` now exists as the adapter layer and compiles cleanly. It exposes the required async surface for `spawn_worker`, `start_worker_process`, `check_and_initialize_worker`, `terminate_worker`, `get_pod_status`, `execute_command_on_worker`, `check_storage_health`, `get_storage_volume_id`, and `expand_network_volume`, with `generate_worker_id()` kept sync. The top-of-file comment documents both the async contract from T4 and the no-Supabase-writes rule. The adapter preserves the legacy storage/RAM behavior by defaulting missing storage volumes to `(\"Peter\", \"EU-NO-1\", \"EU-CZ-1\", \"EUR-IS-1\")` and keeping the old `50/50` disk defaults when env vars are absent. Startup-script behavior is preserved through the surviving `gpu_orchestrator.runpod.startup_script` module: `spawn_worker()` validates the template before provisioning, and `start_worker_process()` still renders, uploads, and launches the script over SSH. Because the package `__init__` does not export SSH or storage helpers, the adapter intentionally uses consumer-local shims there: paramiko for SSH execution and `runpod_lifecycle.get_network_volumes(...)` plus a local REST patch/`df` parser for storage operations. Syntax gate passed with `python -m py_compile gpu_orchestrator/worker_spawner.py`, and the file is exactly 400 lines.",
+  "files_changed": [
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/worker_spawner.py",
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_5.json"
+  ],
+  "commands_run": [
+    "sed -n '1,520p' gpu_orchestrator/runpod/client.py",
+    "sed -n '1,260p' gpu_orchestrator/runpod/startup_script.py",
+    "sed -n '1,520p' gpu_orchestrator/runpod/lifecycle.py",
+    "sed -n '1,260p' gpu_orchestrator/runpod/storage.py",
+    "sed -n '1,240p' gpu_orchestrator/runpod/api.py",
+    "sed -n '1,260p' gpu_orchestrator/runpod/ssh.py",
+    "sed -n '1,240p' gpu_orchestrator/runpod/__init__.py",
+    "rg -n \"def (check_and_initialize_worker|terminate_worker|check_worker_startup_status|start_worker_process|spawn_worker)\" gpu_orchestrator/runpod/lifecycle.py gpu_orchestrator/runpod/storage.py gpu_orchestrator/runpod/client.py",
+    "sed -n '240,520p' gpu_orchestrator/runpod/lifecycle.py",
+    "sed -n '1,260p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/config.py",
+    "sed -n '1,260p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/pod.py",
+    "sed -n '1,220p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/discovery.py",
+    "rg -n \"SSHResult|execute_command_on_worker\\(|_get_storage_volume_id|_expand_network_volume|check_storage_health\\(\" -g '*.py' gpu_orchestrator scripts tests",
+    "sed -n '1,220p' tests/gpu_orchestrator/control/phases/test_lifecycle.py",
+    "python -m py_compile gpu_orchestrator/worker_spawner.py",
+    "wc -l gpu_orchestrator/worker_spawner.py",
+    "rg -n \"async def (spawn_worker|start_worker_process|check_and_initialize_worker|terminate_worker|get_pod_status|execute_command_on_worker|check_storage_health|get_storage_volume_id|expand_network_volume)|def generate_worker_id|create_worker_spawner|render_startup_script\" gpu_orchestrator/worker_spawner.py"
+  ],
+  "deviations": [
+    "The package is still unpublished and unavailable for runtime install in this environment, so T5 was validated by code inspection plus `py_compile`, not by executing the adapter against the package at runtime.",
+    "SSH/storage package gaps were handled as consumer-local shims rather than a package re-export bump: `SSHClient` and storage helpers are not exported from `runpod_lifecycle.__init__`, so no T10 action is required yet unless a later consumer needs those symbols too.",
+    "Advisory observation mismatch: executor claimed files not observed in git status/content hash delta: reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_5.json, reigh-worker-orchestrator/gpu_orchestrator/worker_spawner.py",
+    "Advisory audit finding: Executor claimed changed files not present in git status: reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_1.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_2.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_3.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_5.json, reigh-worker-orchestrator/gpu_orchestrator/worker_spawner.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .claude/",
+    "Advisory audit finding: Sense check SC6 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC7 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC8 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC9 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC10 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC11 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC12 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC13 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC14 is missing an executor acknowledgment."
+  ],
+  "task_updates": [
+    {
+      "task_id": "T5",
+      "status": "done",
+      "executor_notes": "Created `gpu_orchestrator/worker_spawner.py` as the new adapter layer. Public surface now present in the file: async `spawn_worker`, `start_worker_process`, `check_and_initialize_worker`, `terminate_worker`, `get_pod_status`, `execute_command_on_worker`, `check_storage_health`, `get_storage_volume_id`, `expand_network_volume`; sync `generate_worker_id`; factory `create_worker_spawner(config, db)`. Top-of-file comment explicitly documents the async contract and the no-Supabase-writes rule. `spawn_worker()` uses `runpod_lifecycle.launch(...)`, preserves legacy storage-volume fallback by defaulting missing `RUNPOD_STORAGE_VOLUMES` to `(\"Peter\", \"EU-NO-1\", \"EU-CZ-1\", \"EUR-IS-1\")`, preserves legacy disk defaults (`50/50`) when env vars are absent, and validates the preserved `gpu_orchestrator.runpod.startup_script` template before provisioning. `start_worker_process()` keeps startup-script injection behavior by using the preserved startup-script module to render, upload, and launch the script over SSH. Storage helpers are implemented as consumer-local shims because the package `__init__` does not export the needed storage API: the adapter uses `runpod_lifecycle.get_network_volumes(...)` plus a local REST patch helper for expansion and a local `/workspace` `df` parser for health checks. SSH execution is also handled via a consumer-local paramiko shim because `SSHClient` is not exported from the package `__init__`. This means no package bump is required yet; these are orchestrator-local shims and should be noted for T10 only if a later consumer needs the same symbols. Syntax gate passed: `python -m py_compile gpu_orchestrator/worker_spawner.py`. File size gate met at exactly 400 lines (`wc -l`).",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/worker_spawner.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_5.json"
+      ],
+      "commands_run": [
+        "sed -n '1,520p' gpu_orchestrator/runpod/client.py",
+        "sed -n '1,260p' gpu_orchestrator/runpod/startup_script.py",
+        "sed -n '1,520p' gpu_orchestrator/runpod/lifecycle.py",
+        "sed -n '1,260p' gpu_orchestrator/runpod/storage.py",
+        "sed -n '1,240p' gpu_orchestrator/runpod/api.py",
+        "sed -n '1,260p' gpu_orchestrator/runpod/ssh.py",
+        "sed -n '1,240p' gpu_orchestrator/runpod/__init__.py",
+        "rg -n \"def (check_and_initialize_worker|terminate_worker|check_worker_startup_status|start_worker_process|spawn_worker)\" gpu_orchestrator/runpod/lifecycle.py gpu_orchestrator/runpod/storage.py gpu_orchestrator/runpod/client.py",
+        "sed -n '240,520p' gpu_orchestrator/runpod/lifecycle.py",
+        "sed -n '1,260p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/config.py",
+        "sed -n '1,260p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/pod.py",
+        "sed -n '1,220p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/discovery.py",
+        "rg -n \"SSHResult|execute_command_on_worker\\(|_get_storage_volume_id|_expand_network_volume|check_storage_health\\(\" -g '*.py' gpu_orchestrator scripts tests",
+        "sed -n '1,220p' tests/gpu_orchestrator/control/phases/test_lifecycle.py",
+        "python -m py_compile gpu_orchestrator/worker_spawner.py",
+        "wc -l gpu_orchestrator/worker_spawner.py",
+        "rg -n \"async def (spawn_worker|start_worker_process|check_and_initialize_worker|terminate_worker|get_pod_status|execute_command_on_worker|check_storage_health|get_storage_volume_id|expand_network_volume)|def generate_worker_id|create_worker_spawner|render_startup_script\" gpu_orchestrator/worker_spawner.py"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC5",
+      "executor_note": "Yes. `gpu_orchestrator/worker_spawner.py` now exposes the required adapter API with every RunPod-touching public method async except `generate_worker_id()`. The top comment states the no-Supabase-writes rule. Startup-script behavior is preserved via the surviving `gpu_orchestrator.runpod.startup_script` module, RAM/storage fallback defaults are preserved, the file compiles cleanly, and it is capped at 400 lines."
+    }
+  ]
+}

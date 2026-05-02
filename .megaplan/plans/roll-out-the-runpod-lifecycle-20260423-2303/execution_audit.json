@@ -1,0 +1,15 @@
+{
+  "findings": [
+    "Executor claimed changed files not present in git status: reigh-worker-orchestrator/tests/test_module_import_coverage.py",
+    "Git status shows changed files not claimed by any task: .claude/, runpod-lifecycle/"
+  ],
+  "files_in_diff": [
+    ".claude/",
+    "runpod-lifecycle/"
+  ],
+  "files_claimed": [
+    "reigh-worker-orchestrator/tests/test_module_import_coverage.py"
+  ],
+  "skipped": false,
+  "reason": ""
+}

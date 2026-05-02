@@ -1,0 +1,91 @@
+{
+  "version": 1,
+  "timestamp": "2026-04-27T23:38:01Z",
+  "hash": "sha256:2fe3bb43309af13e07d433b1b2424c41f3065f0a3ceed359ec00415e9417b3ac",
+  "questions": [
+    "The brief suggests matching `lockfile.*needs to be updated` OR `lockfile is out of date`. The actual production message we have evidence for is `The lockfile at \\`uv.lock\\` needs to be updated, but \\`--locked\\` was provided.` \u2014 is matching `lockfile.*needs to be updated` (case-insensitive) sufficient, or do you also want to OR-in `lockfile is out of date` defensively even though we haven't confirmed `uv` ever emits it?",
+    "If `uv lock` succeeds but the recovery `uv sync` (no `--locked`) fails, the brief says hard-fail. Currently `set -e` is re-enabled before auto-heal runs, so any non-zero rc aborts the script with the existing ERR trap. Acceptable, or do you want a more specific log line like `\u274c Auto-heal recovery sync failed; aborting` before the implicit abort?",
+    "Should the recovery `uv lock` also pass `--extra cuda124`, or is `--python 3.10` alone sufficient (matching the brief's literal command)?"
+  ],
+  "success_criteria": [
+    {
+      "criterion": "The `else` branch in `gpu_orchestrator/runpod/worker_startup.template.sh` captures `uv sync --locked` exit code (uses `set +e`/`set -e` around it) instead of letting `set -e` immediately abort.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "On lockfile-drift detection (`grep -qiE 'lockfile.*needs to be updated'` matches the captured output), the script runs `\"$UV_BIN\" lock --python 3.10` followed by `\"$UV_BIN\" sync --python 3.10 --extra cuda124` (no `--locked`) and only writes the sentinel after both succeed.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "After auto-heal, the sentinel hash written reflects the regenerated `uv.lock` (i.e. `UV_LOCK_SHA256` and `EXPECTED_INPUTS_HASH` are recomputed between `uv lock` and `printf ... > \"$SYNC_SENTINEL\"`).",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "A clearly distinct, greppable warning line containing `Lockfile drift detected` is emitted to `$LOG_FILE` before the auto-heal commands run.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "If the captured sync output does NOT match the lockfile-drift marker, the script exits with the original non-zero exit code (does not swallow the failure).",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "A new test in `tests/gpu_orchestrator/runpod/test_startup_script.py` asserts the drift marker grep, both auto-heal commands, the post-recovery sentinel write ordering, and the warning line.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "Existing test `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` still passes (sentinel-skip fast-path and `'\"$UV_BIN\" sync --locked'` ordering preserved).",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "All tests in `tests/gpu_orchestrator/` pass.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "Style matches the existing template \u2014 bash-3 compatible, no new top-level dependencies, no Sentry/Slack alerting added.",
+      "priority": "should",
+      "requires": [
+        "read_files",
+        "subjective_judgment"
+      ]
+    },
+    {
+      "criterion": "Idempotency: re-running the startup script on a healthy volume after auto-heal still skips via the sentinel on the next boot (sentinel matches recomputed inputs hash).",
+      "priority": "info",
+      "requires": [
+        "subjective_judgment"
+      ]
+    }
+  ],
+  "assumptions": [
+    "Marker pattern `grep -qiE 'lockfile.*needs to be updated'` is sufficient \u2014 it matches the only failure message we have production evidence for.",
+    "Recovery `uv lock` only needs `--python 3.10` (matching the brief literally); cuda124 is an extra for sync, not for lock resolution.",
+    "The recovery `uv sync` (without `--locked`) appends to `$LOG_FILE` directly \u2014 same pattern as the rest of the template \u2014 and relies on the restored `set -e` + ERR trap to hard-fail on a real resolution problem.",
+    "Existing test `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` will continue to pass because the new structure keeps `rm -f \"$SYNC_SENTINEL\"` before, `'\"$UV_BIN\" sync --locked'` in the middle, and `printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"` after \u2014 only now inside the success arm of the rc branch.",
+    "No changes are needed in `startup_script.py` (the renderer); the template is loaded verbatim and the placeholders we touch are unchanged."
+  ],
+  "structure_warnings": []
+}

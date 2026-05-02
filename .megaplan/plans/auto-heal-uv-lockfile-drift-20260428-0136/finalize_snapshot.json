@@ -1,0 +1,118 @@
+{
+  "tasks": [
+    {
+      "id": "T1",
+      "description": "Edit gpu_orchestrator/runpod/worker_startup.template.sh: replace the current `else` branch (lines ~374-379) of the sentinel-skip block with capture-and-branch logic. Keep `rm -f \"$SYNC_SENTINEL\"` first, then capture `uv sync --locked --python 3.10 --extra cuda124` stdout/stderr to a `$(mktemp)` file under `set +e`, record `SYNC_RC=$?`, restore `set -e`, and append the captured output to $LOG_FILE. Then branch with if/elif/else: (a) on `SYNC_RC -eq 0`, write `printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"`, log the existing-style success line, and `rm -f \"$SYNC_OUTPUT\"`; (b) elif `grep -qiE 'lockfile.*needs to be updated' \"$SYNC_OUTPUT\"`, log `\u26a0\ufe0f  Lockfile drift detected on origin/main; regenerating lockfile in-pod and re-syncing (visit reigh-worker CI to fix upstream)`, `rm -f \"$SYNC_OUTPUT\"`, run `\"$UV_BIN\" lock --python 3.10 >> \"$LOG_FILE\" 2>&1` and `\"$UV_BIN\" sync --python 3.10 --extra cuda124 >> \"$LOG_FILE\" 2>&1` (no `--locked`) \u2014 `set -e` is in effect so either failure aborts via the existing ERR trap \u2014 then recompute `UV_LOCK_SHA256=\"$(sha256sum uv.lock | awk '{print $1}')\"` and recompute `EXPECTED_INPUTS_HASH` using the same hashing recipe used earlier in the template (uv-version, python: 3.10, extras: cuda124, uv-lock-sha256, pyproject-sha256), then `printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"` and log `\u2705 uv sync complete via auto-heal; sentinel refreshed (post-heal hash=$EXPECTED_INPUTS_HASH; uv=$UV_VERSION_STR)`; (c) else log `\u274c uv sync --locked failed (rc=$SYNC_RC) and output did not match lockfile-drift marker; aborting`, `rm -f \"$SYNC_OUTPUT\"`, and `exit \"$SYNC_RC\"`. Do not modify any other part of the template; preserve $PYPROJECT_SHA256/$UV_VERSION_STR variable references already computed earlier in the script.",
+      "depends_on": [],
+      "status": "pending",
+      "executor_notes": "",
+      "files_changed": [],
+      "commands_run": [],
+      "auto_attributed_files": null,
+      "evidence_files": [],
+      "reviewer_verdict": "",
+      "stance": null,
+      "stop_signal": null
+    },
+    {
+      "id": "T2",
+      "description": "Add a new test `test_rendered_startup_script_auto_heals_lockfile_drift` to tests/gpu_orchestrator/runpod/test_startup_script.py that renders the template (using the existing helper used by neighboring tests) and asserts the new structure. Required assertions: (1) presence of `set +e`, `SYNC_RC=$?`, and a matching `set -e` near the captured sync; (2) presence of the literal substring `grep -qiE 'lockfile.*needs to be updated'`; (3) presence of `\u26a0\ufe0f  Lockfile drift detected`; (4) both `\"$UV_BIN\" lock --python 3.10` and the unlocked recovery `\"$UV_BIN\" sync --python 3.10 --extra cuda124` are present; (5) `UV_LOCK_SHA256=\"$(sha256sum uv.lock | awk '{print $1}')\"` appears AFTER the `\u26a0\ufe0f  Lockfile drift detected` warning index (i.e. recompute happens inside the auto-heal arm); (6) ordering inside the auto-heal arm: warning_index < `\"$UV_BIN\" lock --python 3.10` index < recovery-sync index < auto-heal sentinel-write index \u2014 use `script.rindex('printf \\'%s\\\\n\\' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"')` to disambiguate from the success-arm write earlier in the file; (7) presence of the literal substring `\u2705 uv sync complete via auto-heal`; (8) presence of the non-drift abort substring `output did not match lockfile-drift marker`. Add a brief docstring noting that the existing `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` continues to pass because the success arm preserves `rm -f \"$SYNC_SENTINEL\"`, the literal `\"$UV_BIN\" sync --locked` substring, and the FIRST occurrence of `printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"` in document order.",
+      "depends_on": [
+        "T1"
+      ],
+      "status": "pending",
+      "executor_notes": "",
+      "files_changed": [],
+      "commands_run": [],
+      "auto_attributed_files": null,
+      "evidence_files": [],
+      "reviewer_verdict": "",
+      "stance": null,
+      "stop_signal": null
+    },
+    {
+      "id": "T3",
+      "description": "Run the targeted suite first: `pytest tests/gpu_orchestrator/runpod/test_startup_script.py -x`. Then run the broader suite: `pytest tests/gpu_orchestrator/ -x`. If anything fails, read the error, fix the code (template or test as appropriate), and re-run until both pass \u2014 do not create new test files beyond T2's addition. Then write a small throwaway shell script in /tmp that simulates the production failure: create a temp dir, write a fake `uv.lock`+`pyproject.toml`, and inline-extract the rendered `else` block's branching shape (or simply assert via `python -c` that rendering the template and grepping it shows the auto-heal substrings present). Run it to confirm the rendered script behaves as expected on the drift marker, then delete the script. Finally, do a manual visual diff of the rendered template's `else` block to confirm: `set -e` is restored before the auto-heal `uv lock`/recovery `uv sync` (so a real lock-resolution failure aborts via the ERR trap), `$SYNC_OUTPUT` is removed in all three arms (no temp-file leak), and the success arm's sentinel-write line is structurally identical to today (preserving the existing test's `script.index(...)` lookups).",
+      "depends_on": [
+        "T1",
+        "T2"
+      ],
+      "status": "pending",
+      "executor_notes": "",
+      "files_changed": [],
+      "commands_run": [],
+      "auto_attributed_files": null,
+      "evidence_files": [],
+      "reviewer_verdict": "",
+      "stance": null,
+      "stop_signal": null
+    }
+  ],
+  "watch_items": [
+    "FLAG-001: the new ordering test must use `script.rindex(...)` (not `index`) for the auto-heal sentinel-write line, because the success arm contains the identical `printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"` literal earlier in the rendered file. Using `index` would resolve to the success-arm position and the ordering check would mis-fire.",
+    "Existing test `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` uses `script.index(...)` for `rm -f \"$SYNC_SENTINEL\"` < `\"$UV_BIN\" sync --locked` < `printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"`. Keep `rm -f \"$SYNC_SENTINEL\"` BEFORE the captured sync, keep the literal `\"$UV_BIN\" sync --locked` substring (do not break it across lines or alias it), and keep the success-arm sentinel-write as the FIRST occurrence in document order \u2014 otherwise the existing test breaks.",
+    "Sentinel correctness: after auto-heal, `EXPECTED_INPUTS_HASH` MUST be recomputed using the regenerated `uv.lock` (recompute `UV_LOCK_SHA256` via `sha256sum uv.lock | awk '{print $1}'`). Reuse the same hashing recipe and field order already used earlier in the template \u2014 confirm by reading the script, do not invent a new recipe.",
+    "`set -e` is on at the top of the script. Locally toggle `set +e` ONLY around the captured `uv sync --locked` invocation; restore `set -e` before `uv lock` and the recovery `uv sync` so any real lock-resolution failure aborts via the existing ERR trap (do not swallow real errors).",
+    "Drift marker is intentionally narrow: `grep -qiE 'lockfile.*needs to be updated'`. Do NOT broaden to generic `lockfile` matching \u2014 that would misclassify real failures as drift and silently regenerate the lock.",
+    "Recovery `uv sync` MUST omit `--locked`. Recovery `uv lock` keeps `--python 3.10` only (no `--extra`), matching the brief.",
+    "Clean up `$SYNC_OUTPUT` (mktemp file) in all three arms \u2014 success, auto-heal, non-drift abort \u2014 to avoid leaking temp files into pod volumes that may persist across boots.",
+    "Bash-3 compatibility: no bashisms beyond what the existing template already uses. No `[[ ... ]]`, no `mapfile`, no associative arrays \u2014 stick with `[ ... ]` and POSIX-style constructs that match the surrounding style.",
+    "Idempotency assumption: if upstream lockfile is repaired between boots, the freshly-pulled `uv.lock` sha will match the sentinel written from the prior auto-heal run \u2014 the fast-path skip resumes. Confirm by reading the sentinel-comparison logic earlier in the template; do not change it.",
+    "Do NOT modify `gpu_orchestrator/runpod/startup_script.py` \u2014 the template is loaded verbatim and no new placeholders are introduced.",
+    "Do NOT add Sentry/Slack alerting; the visible warning log line is sufficient for this iteration.",
+    "Verifiability flags (verifiability-0, verifiability-1) on success criteria 8/9 are subjective-judgment items \u2014 the executor should record a short reasoning note rather than a code-driven check.",
+    "Debt watch (do not worsen): scaling_decision.py:70 legacy duplication and periodic.py:175-229 failsafe duplication, plus the `is_failsafe_stale` derived-state opportunity \u2014 none of these are in scope, but avoid editing those files in passing."
+  ],
+  "sense_checks": [
+    {
+      "id": "SC1",
+      "task_id": "T1",
+      "question": "Does the rendered template's else branch capture `uv sync --locked` rc with `set +e`/`set -e` toggling, branch via if/elif/else with the exact drift marker `grep -qiE 'lockfile.*needs to be updated'`, recompute UV_LOCK_SHA256 + EXPECTED_INPUTS_HASH inside the auto-heal arm before writing the sentinel, run `uv lock --python 3.10` then `uv sync --python 3.10 --extra cuda124` (no `--locked`) under restored `set -e`, clean up `$SYNC_OUTPUT` in all three arms, and on non-drift failure exit with the original `$SYNC_RC`?",
+      "executor_note": "",
+      "verdict": ""
+    },
+    {
+      "id": "SC2",
+      "task_id": "T2",
+      "question": "Does the new test use `script.rindex(...)` (not `index`) for the auto-heal sentinel-write ordering check, assert all of {set +e/SYNC_RC=$?/set -e, drift grep, warning marker, both auto-heal commands without --locked, post-heal sha256sum recompute AFTER the warning, post-heal success line, non-drift abort line}, and leave the existing `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` untouched and still passing?",
+      "executor_note": "",
+      "verdict": ""
+    },
+    {
+      "id": "SC3",
+      "task_id": "T3",
+      "question": "Did `pytest tests/gpu_orchestrator/runpod/test_startup_script.py -x` and `pytest tests/gpu_orchestrator/ -x` both pass green, did the throwaway repro confirm the rendered script's auto-heal branch shape, and did the manual diff confirm `set -e` is restored before the auto-heal commands and `$SYNC_OUTPUT` is removed in all three arms?",
+      "executor_note": "",
+      "verdict": ""
+    }
+  ],
+  "meta_commentary": "Two-file change: `gpu_orchestrator/runpod/worker_startup.template.sh` (the bash template, surgical edit to the else branch around lines 374\u2013379) and `tests/gpu_orchestrator/runpod/test_startup_script.py` (one new test, leaving the existing sentinel-skip test untouched). The renderer `gpu_orchestrator/runpod/startup_script.py` loads the template verbatim \u2014 do not edit it.\n\nCritical executor gotcha (FLAG-001): the success-arm `printf '%s\\\\n' \\\"$EXPECTED_INPUTS_HASH\\\" > \\\"$SYNC_SENTINEL\\\"` line and the auto-heal-arm sentinel-write line are byte-identical. The new test MUST use `script.rindex(...)` for the auto-heal ordering check, otherwise it will mis-locate to the success-arm position. Conversely, the EXISTING test relies on `script.index(...)` returning the success-arm (first) occurrence \u2014 so keep the success-arm sentinel write as the first such literal in document order.\n\n`set -e` discipline: the only spot where you locally toggle `set +e` is around the captured `uv sync --locked` invocation. Re-enable `set -e` immediately. The auto-heal `uv lock` and recovery `uv sync` run under `set -e`, so a real lock-resolution failure (e.g. unsatisfiable constraints) aborts via the existing ERR trap \u2014 exactly what the brief requires for \"If this fails, hard-fail the script.\"\n\nSentinel recomputation: the post-heal `EXPECTED_INPUTS_HASH` must use the same field order/recipe the template already uses earlier (uv-version, python: 3.10, extras: cuda124, uv-lock-sha256, pyproject-sha256). Read those lines (around 355\u2013363) before writing the auto-heal recipe so the two hashes are interchangeable. `$PYPROJECT_SHA256` and `$UV_VERSION_STR` are already in scope from earlier in the script \u2014 reuse them rather than recomputing.\n\nMarker scope is intentionally narrow. Do not broaden the drift regex to a generic `lockfile` substring \u2014 that risks classifying real resolution failures as drift and silently rebuilding a broken lock. The narrow `lockfile.*needs to be updated` (case-insensitive) is the only message we have production evidence for; if uv changes the wording in a future release, that's a deliberate re-evaluation moment, not a place to be defensively loose now.\n\n`$SYNC_OUTPUT` cleanup: the gate's robustness pass made this explicit. All three arms (success, auto-heal, non-drift abort) must `rm -f \"$SYNC_OUTPUT\"`. Pod volumes can persist across reboots, so a leaked mktemp file would slowly accumulate.\n\nThrowaway repro for T3: keep it lightweight. Render the template via the existing helper from the test file, grep the rendered string for the auto-heal substrings, and assert ordering \u2014 that's enough to confirm the structural change. Delete the script after running. Do NOT try to actually exercise `uv sync` on a real `uv.lock`; the template is bash, the test contract is structural.\n\nStyle match: bash-3 only (POSIX `[ ... ]`, no `[[ ]]`). The captured-output pattern should look like the rest of the template \u2014 single-quoted heredoc-friendly literals, `$VAR` not `${VAR}` unless disambiguation needs it, and no trailing whitespace.",
+  "validation": {
+    "plan_steps_covered": [
+      {
+        "plan_step_summary": "Replace the else branch with capture-and-branch logic that handles success, lockfile-drift auto-heal (with post-heal hash recomputation), and non-drift abort, all with $SYNC_OUTPUT cleanup and proper set -e/+e discipline",
+        "finalize_task_ids": [
+          "T1"
+        ]
+      },
+      {
+        "plan_step_summary": "Add a new test asserting the auto-heal structure (drift grep, warning, both unlocked recovery commands, post-heal recompute, ordering via rindex, non-drift abort line) without disturbing the existing sentinel-skip test",
+        "finalize_task_ids": [
+          "T2"
+        ]
+      },
+      {
+        "plan_step_summary": "Run targeted then broader pytest suites; do a manual visual diff of the rendered else block to confirm set -e restoration and $SYNC_OUTPUT cleanup in all three arms",
+        "finalize_task_ids": [
+          "T3"
+        ]
+      }
+    ],
+    "orphan_tasks": [],
+    "completeness_notes": "All three plan steps mapped 1:1 to tasks. The throwaway repro requested by the finalize requirements is folded into T3's test-validation step (rendering the template and grep-asserting auto-heal substrings) since the bug is a structural property of the rendered bash, not a runtime behavior reproducible from Python.",
+    "coverage_complete": true
+  },
+  "baseline_test_failures": [],
+  "baseline_test_command": "pytest --tb=no -q --no-header",
+  "baseline_test_note": "Baseline tests not executed in this finalize step \u2014 environment is the planning harness, not the executor. The executor should run `pytest tests/gpu_orchestrator/runpod/test_startup_script.py -x` BEFORE making changes to confirm a clean baseline, then re-run after T1+T2 to confirm both the existing `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` and the new `test_rendered_startup_script_auto_heals_lockfile_drift` pass."
+}

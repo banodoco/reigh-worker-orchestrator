@@ -1,0 +1,243 @@
+{
+  "version": 2,
+  "timestamp": "2026-04-23T21:17:43Z",
+  "hash": "sha256:7aa048e6b4d5d3c75860f881eddb6dd4facd2d9cd7a58f13f71e786f5853f570",
+  "changes_summary": "Revised to address all five open significant flags in one pass. (1) Adapter is now explicitly async (all methods `async def`); control_loop's 23 call sites gain `await`; scripts wrap with `asyncio.run(...)`. (2) Scripts that use client-level behavior (`spawn_worker`, `generate_worker_id`, `execute_command_on_worker`, storage privates) migrate to the adapter, not bare `runpod_lifecycle`; only module-level-helper scripts go direct. (3) Adapter is a pure translation layer \u2014 no Supabase writes; `control_loop` keeps the existing `create_worker_record` \u2192 spawn \u2192 `update_worker_status` bracket. (4) reigh-worker scope expanded to include `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, and `tests/test_primitives.py` monkeypatch retargets. (5) Dependency wiring fixed: orchestrator uses `gpu_orchestrator/requirements.txt` (no root pyproject); reigh-worker uses `pip install -e .` without a `[dev]` extra. Added an explicit \"audit async/sync boundary\" step. Updated success criteria to cover async correctness, the non-duplicate DB write contract, and the expanded reigh-worker file set. Updated assumptions to reflect corrected dep-file locations and async adapter surface.",
+  "flags_addressed": [
+    {
+      "id": "FLAG-001",
+      "resolution": "addressed",
+      "reason": "Adapter surface is now explicitly async (all methods `async def` except the pure-string `generate_worker_id`). Step 4 adds an audit of which control_loop functions are already `async def`, Step 7 adds `await` to all 23 call sites, and scripts wrap adapter calls with `asyncio.run(...)` at entry points. Test fixture updated to use `AsyncMock(spec=WorkerSpawnerAdapter)` for async methods."
+    },
+    {
+      "id": "FLAG-002",
+      "resolution": "addressed",
+      "reason": "Step 6 splits scripts into two groups: client-behavior scripts (`spawn_gpu.py`, `ssh_to_worker.py`, `shutdown_all_workers.py`, `terminate_single_worker.py`, `test_runpod.py`, `spot_instance_lifetime_test.py`, `debug/commands/storage.py`, `debug/services/workers.py`) import `create_worker_spawner` from the adapter and get the full client surface including `generate_worker_id`, `execute_command_on_worker`, storage helpers; only raw-helper scripts (`uv_e2e_test.py`, `uv_lock_benchmark.py`) go direct to `runpod_lifecycle`. Adapter's public surface explicitly includes `execute_command_on_worker`, `generate_worker_id`, `check_storage_health`, `get_storage_volume_id`, `expand_network_volume`."
+    },
+    {
+      "id": "FLAG-003",
+      "resolution": "addressed",
+      "reason": "Adapter spec in Step 5 explicitly states it does NOT write Supabase rows. Step 7 preserves the existing `control_loop.py` flow of `create_worker_record` before spawn and `update_worker_status` after. Adapter constructor accepts `db` only for potential read/lookup use, with a written constraint that no adapter method may perform DB writes. Added a success criterion to verify no duplicate DB writes."
+    },
+    {
+      "id": "FLAG-004",
+      "resolution": "addressed",
+      "reason": "Phase 3 Step 12 now covers the full reigh-worker file set: the brief-listed 5 files plus `scripts/live_test/__init__.py` (lazy `gpu_orchestrator.runpod.{lifecycle,ssh,api}` imports), `scripts/live_test/ssh_bootstrap.py`, `scripts/live_test/terminate_guard.py`, and `scripts/live_test/tests/test_primitives.py` (monkeypatch retargets from `gpu_orchestrator.runpod.client` to the new paths). Grep gate added to catch residual references."
+    },
+    {
+      "id": "FLAG-005",
+      "resolution": "addressed",
+      "reason": "Step 3 targets `gpu_orchestrator/requirements.txt` (the actual orchestrator dep file; no root `pyproject.toml`) with `pip install -r gpu_orchestrator/requirements.txt`. Step 11 for reigh-worker uses `pip install -e .` without a `[dev]` extra, and calls out that existing test-dep files (not a synthetic extra) are used. Removed all `pip install -e .[dev]` instructions from consumer repos."
+    }
+  ],
+  "questions": [
+    "The package's `src/runpod_lifecycle/__init__.py` is still not readable from this session. Beyond `RunPodConfig`, `launch`, `terminate`, `list_pods`, `find_orphans`, `get_network_volumes`, `api.{create_pod,get_pod_status,get_pod_ssh_details}`: does it export an `SSHClient` (or equivalent async SSH helper)? Scripts `uv_e2e_test.py` and `uv_lock_benchmark.py` currently import `SSHClient` from `gpu_orchestrator.runpod.ssh`; a missing export triggers Step 10 (v0.1.1) or a consumer shim.",
+    "Does the new package expose storage helpers equivalent to the orchestrator's today (`get_storage_volume_id`, `check_storage_health`, `expand_network_volume`)? If not, the adapter inlines these using `runpod_lifecycle.get_network_volumes` + direct RunPod SDK \u2014 confirm that's acceptable versus bumping to `v0.1.1` with proper exports.",
+    "reigh-worker imports `gpu_orchestrator.runpod.*` today. How does that currently work \u2014 is reigh-worker-orchestrator installed as an editable package in reigh-worker's venv, or is there a sys.path hack, or a sibling-checkout import? The fix is the same (migrate to `runpod_lifecycle`) but the answer affects how test fixtures and monkeypatches should be retargeted in `tests/test_primitives.py`.",
+    "reigh-worker's dirty working tree: is it acceptable to `git stash` and branch from clean main, then pop, or should I surface the dirty-file list to you first so you can confirm zero overlap with migration targets (especially the critique-surfaced `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, `tests/test_primitives.py`)?",
+    "For the adapter's async surface: should I also expose sync wrappers (e.g., `spawn_worker_sync = lambda *a, **k: asyncio.run(spawner.spawn_worker(*a, **k))`) for scripts' convenience, or is `asyncio.run(spawner.spawn_worker(...))` at the call site preferred to avoid API bloat?",
+    "`scripts/debug/commands/runpod.py` in the orchestrator \u2014 the brief's `list_pods` / `find_orphans` mapping targets only the reigh-worker copy. Should the orchestrator copy also be migrated in this pass, or left on raw `runpod` SDK?"
+  ],
+  "success_criteria": [
+    {
+      "criterion": "GitHub repo `banodoco/runpod-lifecycle` exists, is public, has the description 'Reusable async RunPod lifecycle, discovery, and CLI for the Banodoco stack.', and shows the `v0.1.0` tag.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "`cd /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle && .venv/bin/python -m pytest -q` exits 0 with \u226550 tests passed.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "`cd /Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator && pytest -q tests/` exits 0 (green) on the `runpod-lifecycle-migration` branch.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "`cd /Users/peteromalley/Documents/reigh-workspace/reigh-worker && pytest -q` exits 0 (green) on the `runpod-lifecycle-migration` branch.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "Adapter's public methods are `async def` (with the exception of the pure-string `generate_worker_id`), and every `self.runpod.*` call site in `gpu_orchestrator/control_loop.py` uses `await` (the `generate_worker_id` site excepted).",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "`WorkerSpawnerAdapter` does NOT call `create_worker_record` or `update_worker_status`; all Supabase writes remain in `control_loop.py` around (not inside) adapter calls.",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "Scripts that today use client-level behavior (`scripts/spawn_gpu.py`, `ssh_to_worker.py`, `shutdown_all_workers.py`, `terminate_single_worker.py`, `test_runpod.py`, `spot_instance_lifetime_test.py`, `scripts/debug/commands/storage.py`, `scripts/debug/services/workers.py`) import `create_worker_spawner` from `gpu_orchestrator.worker_spawner` \u2014 not raw `runpod_lifecycle`.",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "Scripts that today use only module-level helpers (`scripts/uv_e2e_test.py`, `scripts/uv_lock_benchmark.py`) import directly from `runpod_lifecycle.api` / `runpod_lifecycle.ssh` and wrap coroutine calls with `asyncio.run(...)`.",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "reigh-worker-orchestrator dep is added to `gpu_orchestrator/requirements.txt` (not a root `pyproject.toml`); reigh-worker dep is added to its `pyproject.toml` without introducing a new `[dev]` extra; no `pip install -e .[dev]` command is used on either consumer repo.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "In reigh-worker-orchestrator, `grep -r 'from gpu_orchestrator.runpod' --include='*.py'` returns only `startup_script` imports.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "In reigh-worker, `grep -r 'gpu_orchestrator.runpod' --include='*.py'` returns zero hits (including in `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, `tests/test_primitives.py`).",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "`gpu_orchestrator/runpod/{api,client,lifecycle,storage,ssh}.py` are deleted; `startup_script.py` still exists.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "Obsolete tests deleted: `tests/test_runpod_decomposition.py`, `tests/test_direct_runpod_lifecycle.py`, `tests/test_direct_runpod_storage.py`, `tests/gpu_orchestrator/runpod/test_{lifecycle,storage,api,client}.py`.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "`tests/gpu_orchestrator/runpod/test_startup_script.py` is KEPT and passing.",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "`gpu_orchestrator/worker_spawner.py` exists and its `WorkerSpawnerAdapter` exposes at minimum: `spawn_worker`, `start_worker_process`, `check_and_initialize_worker`, `terminate_worker`, `get_pod_status`, `execute_command_on_worker`, `generate_worker_id`, `check_storage_health`, `get_storage_volume_id`, `expand_network_volume`.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "No commits land on `main` of either `reigh-worker-orchestrator` or `reigh-worker`. Changes live on `runpod-lifecycle-migration` branches pushed to origin.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "No secrets (.env contents, RunPod tokens, API keys) appear in any commit across the three repos.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "No `.venv/`, `.pytest_cache/`, or `__pycache__/` directories committed to the `runpod-lifecycle` repo.",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "reigh-worker's pre-migration uncommitted changes remain unmodified after migration (same dirty file set, same diff content).",
+      "priority": "must",
+      "requires": [
+        "run_shell"
+      ]
+    },
+    {
+      "criterion": "Adapter preserves the pre-migration fallback behavior: RAM-tier fallback, storage-volume fallback, and startup-script injection from `gpu_orchestrator/runpod/startup_script.py`. Code paths remain structurally similar.",
+      "priority": "must",
+      "requires": [
+        "read_files",
+        "parse_diff"
+      ]
+    },
+    {
+      "criterion": "`control_loop.py`'s 23 observed `self.runpod.*` call sites all resolve against the new adapter surface \u2014 pytest shows no AttributeError or 'coroutine was never awaited' warnings.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "If package exports had gaps, `v0.1.1` exists on GitHub and both consumer deps pin `@v0.1.1`; otherwise both pin `@v0.1.0`.",
+      "priority": "should",
+      "requires": [
+        "run_shell",
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "`worker_spawner.py` stays under ~400 lines and contains no unrelated refactors \u2014 purely a translation layer.",
+      "priority": "should",
+      "requires": [
+        "read_files",
+        "subjective_judgment"
+      ]
+    },
+    {
+      "criterion": "reigh-worker test `test_primitives.py` monkeypatches target real, existing attributes after the rewrite (no stale `gpu_orchestrator.runpod.client` paths).",
+      "priority": "should",
+      "requires": [
+        "read_files",
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "Live smoke: spawn a worker, observe it reaches Ready, terminate it \u2014 exercises RAM-tier, storage-volume, and startup-script paths that unit tests don't cover.",
+      "priority": "info",
+      "requires": [
+        "verify_physical_device"
+      ]
+    }
+  ],
+  "assumptions": [
+    "Assumption: `runpod_lifecycle` exports cover `RunPodConfig`, `launch`, `terminate`, `list_pods`, `find_orphans`, `get_network_volumes`, plus `api` (with `create_pod`, `get_pod_status`, `get_pod_ssh_details`) and an SSH helper. Gaps trigger Step 10 (v0.1.1 re-export) or a consumer shim.",
+    "Assumption: `runpod_lifecycle.launch`, `.terminate`, `.list_pods`, `.find_orphans` are async per the critique evidence; `control_loop.py`'s enclosing functions are already `async def` (evidence: `AsyncMock` on `db.update_worker_status`), so adding `await` fits the existing loop without restructuring.",
+    "Assumption: the adapter is a pure translation layer. It MUST NOT write Supabase rows; `control_loop.py` keeps its existing `create_worker_record` / `update_worker_status` bracket around `spawn_worker` calls.",
+    "Assumption: reigh-worker-orchestrator installs from `gpu_orchestrator/requirements.txt` (no root `pyproject.toml` or `setup.py`).",
+    "Assumption: reigh-worker has a `pyproject.toml` with no `[dev]` extra. Install is `pip install -e .` + whatever existing test-dep file is used; no synthetic extras.",
+    "Assumption: `startup_script.py` stays at `gpu_orchestrator/runpod/startup_script.py`; a trimmed `__init__.py` re-exports only from it. No cross-directory moves.",
+    "Assumption: `tests/gpu_orchestrator/runpod/test_startup_script.py` is KEPT (tests the surviving module), excluded from the bulk delete.",
+    "Assumption: Adapter method names mirror today's `RunpodClient` surface (`spawn_worker`, `start_worker_process`, `check_and_initialize_worker`, `terminate_worker`, `get_pod_status`, `execute_command_on_worker`, `generate_worker_id`, `check_storage_health`, `get_storage_volume_id`, `expand_network_volume`) so the only delta at call sites is adding `await`.",
+    "Assumption: migration branches are `runpod-lifecycle-migration` on both consumer repos; only pushed to `origin`; human opens PRs.",
+    "Assumption: reigh-worker's uncommitted changes do NOT overlap with any migration target (including the critique-surfaced files `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, `tests/test_primitives.py`). Overlap pauses the plan for human resolution.",
+    "Assumption: `gh` CLI is authenticated with write access to the `banodoco` org.",
+    "Assumption: both consumer repos' Python versions support installing `runpod-lifecycle` via the git URL (package supports the orchestrator's Python, likely 3.11/3.12)."
+  ],
+  "delta_from_previous_percent": 84.52,
+  "structure_warnings": []
+}

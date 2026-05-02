@@ -1,0 +1,42 @@
+{
+  "checks": [],
+  "flags": [
+    {
+      "id": "FLAG-001",
+      "concern": "RunPod API migration: the plan rewires synchronous callers directly to async `runpod_lifecycle` entrypoints without addressing await/loop boundaries.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "`runpod-lifecycle/src/runpod_lifecycle/lifecycle.py` defines `async def launch`, and `src/runpod_lifecycle/discovery.py` defines `async def list_pods`, `find_orphans`, and `terminate`. The plan maps sync call sites like `gpu_orchestrator/control_loop.py` (`self.runpod.spawn_worker(...)`, `terminate_worker(...)`, `get_pod_status(...)`) and `reigh-worker/debug/commands/runpod.py` to those functions directly, but those call sites do not currently await anything and some already run inside an active event loop."
+    },
+    {
+      "id": "FLAG-002",
+      "concern": "Orchestrator scripts: Step 4 treats several migrations as trivial import swaps, but those files depend on client-only behavior that is not covered by the proposed mapping.",
+      "category": "completeness",
+      "severity_hint": "likely-significant",
+      "evidence": "`scripts/spawn_gpu.py` uses `generate_worker_id`, `spawn_worker`, and `execute_command_on_worker`; `scripts/ssh_to_worker.py` and `scripts/debug/services/workers.py` call `execute_command_on_worker`; `scripts/debug/commands/storage.py` uses `_get_storage_volume_id`, `check_storage_health`, and `_expand_network_volume`. The plan only maps them to `RunPodConfig.from_env()` plus low-level helpers like `terminate` / `api.get_pod_status`, which is not enough to preserve those commands."
+    },
+    {
+      "id": "FLAG-003",
+      "concern": "Worker lifecycle ownership: the adapter is planned to write Supabase rows itself, but the existing orchestrator flow already owns those inserts and updates around `spawn_worker`.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "`gpu_orchestrator/control_loop.py` already does `create_worker_record(...)` before `self.runpod.spawn_worker(...)` and `update_worker_status(...)` after it succeeds or fails. If the new adapter also creates/updates worker rows as the plan states, the migration will duplicate inserts or race metadata updates unless the control-loop flow is redesigned at the same time."
+    },
+    {
+      "id": "FLAG-004",
+      "concern": "Reigh-worker live-test surface: the plan misses imports and tests that still reach into `gpu_orchestrator.runpod.*`, so deleting the orchestrator submodules will break reigh-worker even if the listed five files are updated.",
+      "category": "completeness",
+      "severity_hint": "likely-significant",
+      "evidence": "`reigh-worker/scripts/live_test/__init__.py` lazily imports `gpu_orchestrator.runpod.lifecycle`, `.ssh`, and `.api`; `ssh_bootstrap.py` and `terminate_guard.py` use those exports; `scripts/live_test/tests/test_primitives.py` monkeypatches `live_test_pkg.terminate_pod` and `gpu_orchestrator.runpod.client`. The plan updates `config.py` and the two variant files, but not this lazy-import bridge or its tests."
+    },
+    {
+      "id": "FLAG-005",
+      "concern": "Dependency wiring: the install and dependency steps do not match how these repositories are actually built, so the proposed verification path is not executable as written.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "In `reigh-worker-orchestrator`, the repo root has no `pyproject.toml` or `setup.py`; README and `gpu_orchestrator/Dockerfile` install from `gpu_orchestrator/requirements.txt`, not a root editable package. In `reigh-worker`, `pyproject.toml` has no `dev` extra, so `pip install -e .[dev]` fails. The plan needs to target the real dependency files and test install commands, not placeholder packaging steps."
+    }
+  ],
+  "verified_flag_ids": [],
+  "disputed_flag_ids": []
+}

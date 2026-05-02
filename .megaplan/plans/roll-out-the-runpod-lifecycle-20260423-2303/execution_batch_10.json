@@ -1,0 +1,34 @@
+{
+  "output": "Batch 10 stopped at the `reigh-worker` dirty-tree overlap gate. The repo has pre-existing uncommitted work under `scripts/live_test/`, and that overlaps directly with the migration target set, so no stash/branch/pop or dependency edits were attempted.",
+  "deviations": [
+    "1/1 batch tasks have no executor update \u2014 tracking is incomplete.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_1.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_10.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_2.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_3.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_5.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_6.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_7.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_8.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_9.json, reigh-worker-orchestrator/gpu_orchestrator/control_loop.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/__init__.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/api.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/client.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/lifecycle.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/ssh.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/storage.py, reigh-worker-orchestrator/gpu_orchestrator/runpod_client.py, reigh-worker-orchestrator/gpu_orchestrator/worker_spawner.py, reigh-worker-orchestrator/runpod_lifecycle/__init__.py, reigh-worker-orchestrator/scripts/debug/commands/runpod.py, reigh-worker-orchestrator/scripts/debug/commands/storage.py, reigh-worker-orchestrator/scripts/debug/services/workers.py, reigh-worker-orchestrator/scripts/shutdown_all_workers.py, reigh-worker-orchestrator/scripts/spawn_gpu.py, reigh-worker-orchestrator/scripts/ssh_to_worker.py, reigh-worker-orchestrator/scripts/terminate_single_worker.py, reigh-worker-orchestrator/scripts/test_runpod.py, reigh-worker-orchestrator/tests/gpu_orchestrator/control/phases/test_lifecycle.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_api.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_client.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_lifecycle.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_startup_script.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_storage.py, reigh-worker-orchestrator/tests/scripts/test_debug_services.py, reigh-worker-orchestrator/tests/test_direct_runpod_lifecycle.py, reigh-worker-orchestrator/tests/test_direct_runpod_storage.py, reigh-worker-orchestrator/tests/test_module_import_coverage.py, reigh-worker-orchestrator/tests/test_runpod_decomposition.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .claude/",
+    "Advisory audit finding: Sense check SC12 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC13 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC14 is missing an executor acknowledgment."
+  ],
+  "task_updates": [
+    {
+      "task_id": "T11",
+      "status": "blocked",
+      "executor_notes": "Pre-migration inspection of `/Users/peteromalley/Documents/reigh-workspace/reigh-worker` found the following dirty file set from `git status --short`: `?? .github/workflows/architecture-boundaries.yml`, `?? docs/wan2gp-triage.csv`, and `?? scripts/live_test/`. The repo is currently on branch `main`. This dirty set overlaps the migration target set, so the task must stop per instructions rather than auto-merge or stash/pop around it. Concretely, the untracked `scripts/live_test/` tree already contains target files from the planned migration set: `scripts/live_test/config.py`, `scripts/live_test/variant_fresh.py`, `scripts/live_test/variant_update.py`, `scripts/live_test/__init__.py`, `scripts/live_test/ssh_bootstrap.py`, `scripts/live_test/terminate_guard.py`, and `scripts/live_test/tests/test_primitives.py`. Because of that overlap, I did not run `git stash push`, did not create `runpod-lifecycle-migration` in `reigh-worker`, did not edit `pyproject.toml`, did not attempt `pip install -e .`, and did not run `python -c 'import runpod_lifecycle'`. I did confirm that `pyproject.toml` is the dependency file in this repo and that it currently has no `runpod-lifecycle` dependency entry yet, but no mutation was made because the overlap gate blocked further execution.",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_10.json"
+      ],
+      "commands_run": [
+        "git status --short",
+        "git branch --show-current",
+        "sed -n '1,220p' /Users/peteromalley/Documents/reigh-workspace/reigh-worker/pyproject.toml",
+        "rg --files scripts/live_test",
+        "find scripts/live_test -maxdepth 2 -type f | sort"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC11",
+      "executor_note": "Partially satisfied. T11 did record the pre-migration `git status --short` output and verified that the dirty tree overlaps the migration target set, which correctly triggered the stop condition. Because of that overlap, the stash/branch/pop pattern was intentionally not executed, `pyproject.toml` was not edited, and `python -c 'import runpod_lifecycle'` was not attempted."
+    }
+  ]
+}

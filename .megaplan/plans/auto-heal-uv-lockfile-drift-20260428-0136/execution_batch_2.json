@@ -1,0 +1,41 @@
+{
+  "output": "Batch 2 complete. Added the structural auto-heal startup-script test and checkpointed batch 2 progress.",
+  "files_changed": [
+    "tests/gpu_orchestrator/runpod/test_startup_script.py",
+    ".megaplan/plans/auto-heal-uv-lockfile-drift-20260428-0136/execution_batch_2.json"
+  ],
+  "commands_run": [
+    "sed -n '1,240p' tests/gpu_orchestrator/runpod/test_startup_script.py",
+    "git status --short -- gpu_orchestrator/runpod/worker_startup.template.sh tests/gpu_orchestrator/runpod/test_startup_script.py .megaplan/plans/auto-heal-uv-lockfile-drift-20260428-0136/execution_batch_2.json",
+    "pytest tests/gpu_orchestrator/runpod/test_startup_script.py -x",
+    "git diff -- tests/gpu_orchestrator/runpod/test_startup_script.py",
+    "sed -n '90,155p' tests/gpu_orchestrator/runpod/test_startup_script.py",
+    "python -m json.tool .megaplan/plans/auto-heal-uv-lockfile-drift-20260428-0136/execution_batch_2.json >/dev/null",
+    "git status --short -- tests/gpu_orchestrator/runpod/test_startup_script.py .megaplan/plans/auto-heal-uv-lockfile-drift-20260428-0136/execution_batch_2.json"
+  ],
+  "deviations": [
+    "Advisory observation mismatch: executor claimed files not observed in git status/content hash delta: .megaplan/plans/auto-heal-uv-lockfile-drift-20260428-0136/execution_batch_2.json",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .megaplan/plans/add-a-sentinel-skip-20260428-0103/, .megaplan/plans/auto-heal-uv-lockfile-drift-20260428-0136/, .megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/, .megaplan/schemas/critique.json, .megaplan/schemas/directors_notes.json, .megaplan/schemas/execution.json, .megaplan/schemas/execution_doc.json, .megaplan/schemas/finalize.json, .megaplan/schemas/gate.json, .megaplan/schemas/plan.json, .megaplan/schemas/prep.json, .megaplan/schemas/review.json, .megaplan/schemas/revise.json, .megaplan/schemas/tiebreaker_challenger.json, .megaplan/schemas/tiebreaker_researcher.json",
+    "Advisory audit finding: Sense check SC3 is missing an executor acknowledgment."
+  ],
+  "task_updates": [
+    {
+      "task_id": "T2",
+      "status": "done",
+      "executor_notes": "Added test_rendered_startup_script_auto_heals_lockfile_drift using startup_script.render_startup_script. The test asserts set +e / locked sync / SYNC_RC / set -e ordering, the exact drift grep, warning marker, uv lock, unlocked recovery uv sync, post-warning UV_LOCK_SHA256 recompute, auto-heal sentinel write ordering via script.rindex(...), auto-heal success marker, and non-drift abort marker. The existing sentinel-skip test was left unchanged and the full startup-script test file passes. First full-file run failed because the new test looked for set +e after the locked sync; corrected the assertion to the actual intended order set +e < locked sync < SYNC_RC < set -e, then reran the full file successfully.",
+      "files_changed": [
+        "tests/gpu_orchestrator/runpod/test_startup_script.py"
+      ],
+      "commands_run": [
+        "pytest tests/gpu_orchestrator/runpod/test_startup_script.py -x"
+      ],
+      "auto_attributed_files": true
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC2",
+      "executor_note": "Yes. The new test uses script.rindex(...) for the auto-heal sentinel-write ordering check, asserts set +e/SYNC_RC=$?/set -e around the captured sync, the exact drift grep, warning marker, uv lock, unlocked recovery sync, post-warning sha256 recompute, auto-heal success line, and non-drift abort line. The existing sentinel-skip test was not modified and passed in the full test-file run."
+    }
+  ]
+}

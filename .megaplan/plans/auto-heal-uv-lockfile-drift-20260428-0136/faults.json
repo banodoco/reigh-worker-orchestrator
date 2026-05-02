@@ -1,0 +1,37 @@
+{
+  "flags": [
+    {
+      "id": "FLAG-001",
+      "concern": "Startup script verification: the proposed auto-heal ordering test will likely fail or assert the wrong sentinel write because it plans to use `script.index(...)` for the post-heal sentinel write while the unchanged success branch keeps the same `printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"` earlier in the rendered script.",
+      "category": "correctness",
+      "severity_hint": "likely-minor",
+      "evidence": "The existing template writes the sentinel immediately after the locked sync success path, and the plan intentionally preserves that exact line for the existing sentinel test. The proposed new test says to check `uv lock` index < recovery `uv sync` index < the post-heal `printf ... > \"$SYNC_SENTINEL\"` index, but a plain `script.index('printf ...')` returns the first occurrence in the success branch before the auto-heal branch. The test needs to scope to the auto-heal block or use the occurrence after the recovery sync.",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "minor",
+      "verified": false
+    },
+    {
+      "id": "verifiability-0",
+      "concern": "Criterion 8: requires human verification (subjective_judgment).",
+      "category": "other",
+      "severity_hint": "likely-minor",
+      "evidence": "",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "minor",
+      "verified": false
+    },
+    {
+      "id": "verifiability-1",
+      "concern": "Criterion 9: requires human verification (subjective_judgment).",
+      "category": "other",
+      "severity_hint": "likely-minor",
+      "evidence": "",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "minor",
+      "verified": false
+    }
+  ]
+}

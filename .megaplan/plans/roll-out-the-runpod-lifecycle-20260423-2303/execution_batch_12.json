@@ -1,0 +1,32 @@
+{
+  "task_updates": [
+    {
+      "task_id": "T13",
+      "status": "blocked",
+      "executor_notes": "T13 could not proceed because its dependency T12 remains blocked and no reigh-worker migration edits were ever applied. Re-checking `/Users/peteromalley/Documents/reigh-workspace/reigh-worker` confirms the same unresolved overlap from T11/T12: `git status --short` still returns `?? .github/workflows/architecture-boundaries.yml`, `?? docs/wan2gp-triage.csv`, and `?? scripts/live_test/`, and `git branch --show-current` is still `main`. Because the untracked `scripts/live_test/` tree is itself part of the migration target set, the plan's stop condition still applies: I did not run `pytest -q`, did not stage or commit anything, and did not attempt `git push -u origin runpod-lifecycle-migration`. Verification for this batch therefore consists of confirming that the blocker is unchanged and that the pre-migration dirty set has not been modified by this session.",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_12.json"
+      ],
+      "commands_run": [
+        "git status --short",
+        "git branch --show-current",
+        "test -d .megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303 && echo present || echo missing"
+      ],
+      "evidence_files": [],
+      "reviewer_verdict": ""
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC13",
+      "executor_note": "Not satisfied. `reigh-worker` test execution, branch verification on `runpod-lifecycle-migration`, commit, and push were not attempted because T12 is still blocked by the overlapping untracked `scripts/live_test/` tree. Re-checks show the dirty set is unchanged from T11 and the repo remains on `main`.",
+      "verdict": ""
+    }
+  ],
+  "deviations": [
+    "1/1 batch tasks have no executor update \u2014 tracking is incomplete.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_1.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_10.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_11.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_12.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_2.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_3.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_5.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_6.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_7.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_8.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_9.json, reigh-worker-orchestrator/gpu_orchestrator/control_loop.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/__init__.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/api.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/client.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/lifecycle.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/ssh.py, reigh-worker-orchestrator/gpu_orchestrator/runpod/storage.py, reigh-worker-orchestrator/gpu_orchestrator/runpod_client.py, reigh-worker-orchestrator/gpu_orchestrator/worker_spawner.py, reigh-worker-orchestrator/runpod_lifecycle/__init__.py, reigh-worker-orchestrator/scripts/debug/commands/runpod.py, reigh-worker-orchestrator/scripts/debug/commands/storage.py, reigh-worker-orchestrator/scripts/debug/services/workers.py, reigh-worker-orchestrator/scripts/shutdown_all_workers.py, reigh-worker-orchestrator/scripts/spawn_gpu.py, reigh-worker-orchestrator/scripts/ssh_to_worker.py, reigh-worker-orchestrator/scripts/terminate_single_worker.py, reigh-worker-orchestrator/scripts/test_runpod.py, reigh-worker-orchestrator/tests/gpu_orchestrator/control/phases/test_lifecycle.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_api.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_client.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_lifecycle.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_startup_script.py, reigh-worker-orchestrator/tests/gpu_orchestrator/runpod/test_storage.py, reigh-worker-orchestrator/tests/scripts/test_debug_services.py, reigh-worker-orchestrator/tests/test_direct_runpod_lifecycle.py, reigh-worker-orchestrator/tests/test_direct_runpod_storage.py, reigh-worker-orchestrator/tests/test_module_import_coverage.py, reigh-worker-orchestrator/tests/test_runpod_decomposition.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .claude/",
+    "Advisory audit finding: Sense check SC14 is missing an executor acknowledgment."
+  ]
+}

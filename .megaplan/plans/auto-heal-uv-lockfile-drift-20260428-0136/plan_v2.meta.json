@@ -1,0 +1,105 @@
+{
+  "version": 2,
+  "timestamp": "2026-04-27T23:40:53Z",
+  "hash": "sha256:3e47283ddb89956a7e9029b860aa6b5c187b8299cff232a3f1c359409c5c474b",
+  "changes_summary": "No critique flags were raised; gate requested a light robustness pass. Tightened the Step 1 code block so all three arms (success, auto-heal, non-drift abort) clean up `$SYNC_OUTPUT` and structured them as a single `if/elif/else` (no fall-through risk). Made the test ordering plan explicit about using `script.rindex(...)` for the auto-heal sentinel write to avoid colliding with the identical success-arm string. Documented why the existing test's `script.index(...)` lookups still resolve correctly under the new structure. Resolved the three open questions inline with sensible defaults (drift pattern stays `lockfile.*needs to be updated`; recovery `uv lock` keeps `--python 3.10` only per brief; an explicit non-drift abort log line is included). Success criteria preserved with no scope changes.",
+  "flags_addressed": [],
+  "questions": [],
+  "success_criteria": [
+    {
+      "criterion": "The `else` branch in `gpu_orchestrator/runpod/worker_startup.template.sh` captures `uv sync --locked` exit code (uses `set +e`/`set -e` around it) instead of letting `set -e` immediately abort.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "On lockfile-drift detection (`grep -qiE 'lockfile.*needs to be updated'` matches the captured output), the script runs `\"$UV_BIN\" lock --python 3.10` followed by `\"$UV_BIN\" sync --python 3.10 --extra cuda124` (no `--locked`) and only writes the sentinel after both succeed.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "After auto-heal, the sentinel hash written reflects the regenerated `uv.lock` (i.e. `UV_LOCK_SHA256` and `EXPECTED_INPUTS_HASH` are recomputed between the recovery `uv sync` and the auto-heal `printf ... > \"$SYNC_SENTINEL\"`).",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "A clearly distinct, greppable warning line containing `Lockfile drift detected` is emitted to `$LOG_FILE` before the auto-heal commands run.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "If the captured sync output does NOT match the lockfile-drift marker, the script exits with the original non-zero exit code (does not swallow the failure) and logs the rc.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "`set -e` is restored before the auto-heal `uv lock` and recovery `uv sync` invocations so a real lock-resolution failure aborts the script via the existing ERR trap.",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "The temp file `$SYNC_OUTPUT` is removed in all three arms (success, auto-heal, non-drift abort).",
+      "priority": "must",
+      "requires": [
+        "read_files"
+      ]
+    },
+    {
+      "criterion": "A new test in `tests/gpu_orchestrator/runpod/test_startup_script.py` asserts the drift marker grep, both auto-heal commands, post-recovery hash recomputation, the auto-heal sentinel-write ordering (using `rindex` to disambiguate from the success-arm write), and the warning line.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "Existing test `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` still passes (sentinel-skip fast-path and `'\"$UV_BIN\" sync --locked'` ordering preserved).",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "All tests in `tests/gpu_orchestrator/` pass.",
+      "priority": "must",
+      "requires": [
+        "run_tests"
+      ]
+    },
+    {
+      "criterion": "Style matches the existing template \u2014 bash-3 compatible, no new top-level dependencies, no Sentry/Slack alerting added.",
+      "priority": "should",
+      "requires": [
+        "read_files",
+        "subjective_judgment"
+      ]
+    },
+    {
+      "criterion": "Idempotency: re-running the startup script on a healthy volume after auto-heal still skips via the sentinel on the next boot (sentinel matches recomputed inputs hash).",
+      "priority": "info",
+      "requires": [
+        "subjective_judgment"
+      ]
+    }
+  ],
+  "assumptions": [
+    "Marker pattern `grep -qiE 'lockfile.*needs to be updated'` is sufficient \u2014 it matches the only failure message we have production evidence for, and broadening it risks misclassifying real failures as drift.",
+    "Recovery `uv lock` only needs `--python 3.10` (matching the brief literally); cuda124 is a sync-time extra, not a lock-resolution input.",
+    "Recovery `uv sync` (without `--locked`) appends to `$LOG_FILE` directly and relies on the restored `set -e` + ERR trap to hard-fail on a real resolution problem \u2014 no extra wrapping needed.",
+    "Existing test `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` continues to pass because the new block keeps `rm -f \"$SYNC_SENTINEL\"`, then `'\"$UV_BIN\" sync --locked'`, then the success-arm `printf '%s\\n' \"$EXPECTED_INPUTS_HASH\" > \"$SYNC_SENTINEL\"` as the FIRST occurrence \u2014 `script.index()` ordering holds.",
+    "No changes are needed in `startup_script.py` (the renderer); the template is loaded verbatim and no placeholders are added or removed.",
+    "An explicit `\u274c uv sync --locked failed (rc=$SYNC_RC) and output did not match lockfile-drift marker; aborting` log line is acceptable visibility for non-drift failures; the brief allowed but did not mandate this."
+  ],
+  "delta_from_previous_percent": 55.22,
+  "structure_warnings": []
+}

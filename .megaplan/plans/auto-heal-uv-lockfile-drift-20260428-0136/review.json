@@ -1,0 +1,86 @@
+{
+  "review_verdict": "approved",
+  "checks": [],
+  "pre_check_flags": [],
+  "verified_flag_ids": [],
+  "disputed_flag_ids": [],
+  "criteria": [
+    {
+      "name": "The `else` branch in `gpu_orchestrator/runpod/worker_startup.template.sh` captures `uv sync --locked` exit code (uses `set +e`/`set -e` around it) instead of letting `set -e` immediately abort.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "On lockfile-drift detection (`grep -qiE 'lockfile.*needs to be updated'` matches the captured output), the script runs `\"$UV_BIN\" lock --python 3.10` followed by `\"$UV_BIN\" sync --python 3.10 --extra cuda124` (no `--locked`) and only writes the sentinel after both succeed.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "After auto-heal, the sentinel hash written reflects the regenerated `uv.lock` (i.e. `UV_LOCK_SHA256` and `EXPECTED_INPUTS_HASH` are recomputed between the recovery `uv sync` and the auto-heal `printf ... > \"$SYNC_SENTINEL\"`).",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "A clearly distinct, greppable warning line containing `Lockfile drift detected` is emitted to `$LOG_FILE` before the auto-heal commands run.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "If the captured sync output does NOT match the lockfile-drift marker, the script exits with the original non-zero exit code (does not swallow the failure) and logs the rc.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "`set -e` is restored before the auto-heal `uv lock` and recovery `uv sync` invocations so a real lock-resolution failure aborts the script via the existing ERR trap.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "The temp file `$SYNC_OUTPUT` is removed in all three arms (success, auto-heal, non-drift abort).",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "A new test in `tests/gpu_orchestrator/runpod/test_startup_script.py` asserts the drift marker grep, both auto-heal commands, post-recovery hash recomputation, the auto-heal sentinel-write ordering (using `rindex` to disambiguate from the success-arm write), and the warning line.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "Existing test `test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel` still passes (sentinel-skip fast-path and `'\"$UV_BIN\" sync --locked'` ordering preserved).",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "All tests in `tests/gpu_orchestrator/` pass.",
+      "priority": "must",
+      "pass": "pass",
+      "evidence": "Light robustness: auto-approved."
+    },
+    {
+      "name": "Style matches the existing template \u2014 bash-3 compatible, no new top-level dependencies, no Sentry/Slack alerting added.",
+      "priority": "should",
+      "pass": "deferred_human",
+      "evidence": "Requires human verification capabilities."
+    },
+    {
+      "name": "Idempotency: re-running the startup script on a healthy volume after auto-heal still skips via the sentinel on the next boot (sentinel matches recomputed inputs hash).",
+      "priority": "info",
+      "pass": "deferred_human",
+      "evidence": "Requires human verification capabilities."
+    }
+  ],
+  "issues": [],
+  "rework_items": [],
+  "summary": "Light robustness: review skipped; stub written for artifact parity.",
+  "task_verdicts": [],
+  "sense_check_verdicts": []
+}

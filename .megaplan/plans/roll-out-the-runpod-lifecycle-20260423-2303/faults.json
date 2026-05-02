@@ -1,0 +1,86 @@
+{
+  "flags": [
+    {
+      "id": "FLAG-001",
+      "concern": "RunPod API migration: the plan rewires synchronous callers directly to async `runpod_lifecycle` entrypoints without addressing await/loop boundaries.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "Revised to address all five open significant flags in one pass. (1) Adapter is now explicitly async (all methods `async def`); control_loop's 23 call sites gain `await`; scripts wrap with `asyncio.run(...)`. (2) Scripts that use client-level behavior (`spawn_worker`, `generate_worker_id`, `execute_command_on_worker`, storage privates) migrate to the adapter, not bare `runpod_lifecycle`; only module-level-helper scripts go direct. (3) Adapter is a pure translation layer \u2014 no Supabase writes; `control_loop` keeps the existing `create_worker_record` \u2192 spawn \u2192 `update_worker_status` bracket. (4) reigh-worker scope expanded to include `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, and `tests/test_primitives.py` monkeypatch retargets. (5) Dependency wiring fixed: orchestrator uses `gpu_orchestrator/requirements.txt` (no root pyproject); reigh-worker uses `pip install -e .` without a `[dev]` extra. Added an explicit \"audit async/sync boundary\" step. Updated success criteria to cover async correctness, the non-duplicate DB write contract, and the expanded reigh-worker file set. Updated assumptions to reflect corrected dep-file locations and async adapter surface.",
+      "raised_in": "critique_v1.json",
+      "status": "addressed",
+      "severity": "significant",
+      "verified": false,
+      "addressed_in": "plan_v2.md"
+    },
+    {
+      "id": "FLAG-002",
+      "concern": "Orchestrator scripts: Step 4 treats several migrations as trivial import swaps, but those files depend on client-only behavior that is not covered by the proposed mapping.",
+      "category": "completeness",
+      "severity_hint": "likely-significant",
+      "evidence": "Revised to address all five open significant flags in one pass. (1) Adapter is now explicitly async (all methods `async def`); control_loop's 23 call sites gain `await`; scripts wrap with `asyncio.run(...)`. (2) Scripts that use client-level behavior (`spawn_worker`, `generate_worker_id`, `execute_command_on_worker`, storage privates) migrate to the adapter, not bare `runpod_lifecycle`; only module-level-helper scripts go direct. (3) Adapter is a pure translation layer \u2014 no Supabase writes; `control_loop` keeps the existing `create_worker_record` \u2192 spawn \u2192 `update_worker_status` bracket. (4) reigh-worker scope expanded to include `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, and `tests/test_primitives.py` monkeypatch retargets. (5) Dependency wiring fixed: orchestrator uses `gpu_orchestrator/requirements.txt` (no root pyproject); reigh-worker uses `pip install -e .` without a `[dev]` extra. Added an explicit \"audit async/sync boundary\" step. Updated success criteria to cover async correctness, the non-duplicate DB write contract, and the expanded reigh-worker file set. Updated assumptions to reflect corrected dep-file locations and async adapter surface.",
+      "raised_in": "critique_v1.json",
+      "status": "addressed",
+      "severity": "significant",
+      "verified": false,
+      "addressed_in": "plan_v2.md"
+    },
+    {
+      "id": "FLAG-003",
+      "concern": "Worker lifecycle ownership: the adapter is planned to write Supabase rows itself, but the existing orchestrator flow already owns those inserts and updates around `spawn_worker`.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "Revised to address all five open significant flags in one pass. (1) Adapter is now explicitly async (all methods `async def`); control_loop's 23 call sites gain `await`; scripts wrap with `asyncio.run(...)`. (2) Scripts that use client-level behavior (`spawn_worker`, `generate_worker_id`, `execute_command_on_worker`, storage privates) migrate to the adapter, not bare `runpod_lifecycle`; only module-level-helper scripts go direct. (3) Adapter is a pure translation layer \u2014 no Supabase writes; `control_loop` keeps the existing `create_worker_record` \u2192 spawn \u2192 `update_worker_status` bracket. (4) reigh-worker scope expanded to include `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, and `tests/test_primitives.py` monkeypatch retargets. (5) Dependency wiring fixed: orchestrator uses `gpu_orchestrator/requirements.txt` (no root pyproject); reigh-worker uses `pip install -e .` without a `[dev]` extra. Added an explicit \"audit async/sync boundary\" step. Updated success criteria to cover async correctness, the non-duplicate DB write contract, and the expanded reigh-worker file set. Updated assumptions to reflect corrected dep-file locations and async adapter surface.",
+      "raised_in": "critique_v1.json",
+      "status": "addressed",
+      "severity": "significant",
+      "verified": false,
+      "addressed_in": "plan_v2.md"
+    },
+    {
+      "id": "FLAG-004",
+      "concern": "Reigh-worker live-test surface: the plan misses imports and tests that still reach into `gpu_orchestrator.runpod.*`, so deleting the orchestrator submodules will break reigh-worker even if the listed five files are updated.",
+      "category": "completeness",
+      "severity_hint": "likely-significant",
+      "evidence": "Revised to address all five open significant flags in one pass. (1) Adapter is now explicitly async (all methods `async def`); control_loop's 23 call sites gain `await`; scripts wrap with `asyncio.run(...)`. (2) Scripts that use client-level behavior (`spawn_worker`, `generate_worker_id`, `execute_command_on_worker`, storage privates) migrate to the adapter, not bare `runpod_lifecycle`; only module-level-helper scripts go direct. (3) Adapter is a pure translation layer \u2014 no Supabase writes; `control_loop` keeps the existing `create_worker_record` \u2192 spawn \u2192 `update_worker_status` bracket. (4) reigh-worker scope expanded to include `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, and `tests/test_primitives.py` monkeypatch retargets. (5) Dependency wiring fixed: orchestrator uses `gpu_orchestrator/requirements.txt` (no root pyproject); reigh-worker uses `pip install -e .` without a `[dev]` extra. Added an explicit \"audit async/sync boundary\" step. Updated success criteria to cover async correctness, the non-duplicate DB write contract, and the expanded reigh-worker file set. Updated assumptions to reflect corrected dep-file locations and async adapter surface.",
+      "raised_in": "critique_v1.json",
+      "status": "addressed",
+      "severity": "significant",
+      "verified": false,
+      "addressed_in": "plan_v2.md"
+    },
+    {
+      "id": "FLAG-005",
+      "concern": "Dependency wiring: the install and dependency steps do not match how these repositories are actually built, so the proposed verification path is not executable as written.",
+      "category": "correctness",
+      "severity_hint": "likely-significant",
+      "evidence": "Revised to address all five open significant flags in one pass. (1) Adapter is now explicitly async (all methods `async def`); control_loop's 23 call sites gain `await`; scripts wrap with `asyncio.run(...)`. (2) Scripts that use client-level behavior (`spawn_worker`, `generate_worker_id`, `execute_command_on_worker`, storage privates) migrate to the adapter, not bare `runpod_lifecycle`; only module-level-helper scripts go direct. (3) Adapter is a pure translation layer \u2014 no Supabase writes; `control_loop` keeps the existing `create_worker_record` \u2192 spawn \u2192 `update_worker_status` bracket. (4) reigh-worker scope expanded to include `scripts/live_test/__init__.py`, `ssh_bootstrap.py`, `terminate_guard.py`, and `tests/test_primitives.py` monkeypatch retargets. (5) Dependency wiring fixed: orchestrator uses `gpu_orchestrator/requirements.txt` (no root pyproject); reigh-worker uses `pip install -e .` without a `[dev]` extra. Added an explicit \"audit async/sync boundary\" step. Updated success criteria to cover async correctness, the non-duplicate DB write contract, and the expanded reigh-worker file set. Updated assumptions to reflect corrected dep-file locations and async adapter surface.",
+      "raised_in": "critique_v1.json",
+      "status": "addressed",
+      "severity": "significant",
+      "verified": false,
+      "addressed_in": "plan_v2.md"
+    },
+    {
+      "id": "verifiability-0",
+      "concern": "Criterion 17: requires human verification (subjective_judgment).",
+      "category": "other",
+      "severity_hint": "likely-minor",
+      "evidence": "",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "minor",
+      "verified": false
+    },
+    {
+      "id": "verifiability-1",
+      "concern": "Criterion 18: requires human verification (verify_physical_device).",
+      "category": "other",
+      "severity_hint": "likely-minor",
+      "evidence": "",
+      "raised_in": "critique_v1.json",
+      "status": "open",
+      "severity": "minor",
+      "verified": false
+    }
+  ]
+}

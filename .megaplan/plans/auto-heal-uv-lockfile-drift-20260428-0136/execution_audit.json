@@ -1,0 +1,30 @@
+{
+  "findings": [
+    "Git status shows changed files not claimed by any task: .megaplan/plans/add-a-sentinel-skip-20260428-0103/, .megaplan/plans/auto-heal-uv-lockfile-drift-20260428-0136/, .megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/, .megaplan/schemas/critique.json, .megaplan/schemas/directors_notes.json, .megaplan/schemas/execution.json, .megaplan/schemas/execution_doc.json, .megaplan/schemas/finalize.json, .megaplan/schemas/gate.json, .megaplan/schemas/plan.json, .megaplan/schemas/prep.json, .megaplan/schemas/review.json, .megaplan/schemas/revise.json, .megaplan/schemas/tiebreaker_challenger.json, .megaplan/schemas/tiebreaker_researcher.json"
+  ],
+  "files_in_diff": [
+    ".megaplan/plans/add-a-sentinel-skip-20260428-0103/",
+    ".megaplan/plans/auto-heal-uv-lockfile-drift-20260428-0136/",
+    ".megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/",
+    ".megaplan/schemas/critique.json",
+    ".megaplan/schemas/directors_notes.json",
+    ".megaplan/schemas/execution.json",
+    ".megaplan/schemas/execution_doc.json",
+    ".megaplan/schemas/finalize.json",
+    ".megaplan/schemas/gate.json",
+    ".megaplan/schemas/plan.json",
+    ".megaplan/schemas/prep.json",
+    ".megaplan/schemas/review.json",
+    ".megaplan/schemas/revise.json",
+    ".megaplan/schemas/tiebreaker_challenger.json",
+    ".megaplan/schemas/tiebreaker_researcher.json",
+    "gpu_orchestrator/runpod/worker_startup.template.sh",
+    "tests/gpu_orchestrator/runpod/test_startup_script.py"
+  ],
+  "files_claimed": [
+    "gpu_orchestrator/runpod/worker_startup.template.sh",
+    "tests/gpu_orchestrator/runpod/test_startup_script.py"
+  ],
+  "skipped": false,
+  "reason": ""
+}

@@ -1,0 +1,80 @@
+{
+  "output": "Batch 6 completed. T6 migrated the orchestrator-facing scripts to either `gpu_orchestrator.worker_spawner.create_worker_spawner(...)` or the `runpod_lifecycle` package APIs, and T7 rewired `gpu_orchestrator/control_loop.py` to the new async adapter with awaited RunPod calls. Syntax verification passed with a single `python -m py_compile` sweep over every edited file in this batch, including the ignored helper scripts updated on disk.",
+  "deviations": [
+    "`scripts/spot_instance_lifetime_test.py` and `scripts/uv_e2e_test.py` were updated on disk and included in the `py_compile` gate, but they do not appear in `git diff`/`git status` because this repo ignores `/scripts/*test*.py` via `.gitignore:146`.",
+    "Repo-wide grep for `from gpu_orchestrator.runpod import` / `from gpu_orchestrator.runpod.` still returns obsolete test-only imports under `tests/` plus the preserved `startup_script` import in `gpu_orchestrator/worker_spawner.py`. Production code for this batch is clean; the test-only legacy imports are owned by T8's delete/update step.",
+    "Advisory audit finding: Executor claimed changed files not present in git status: reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_1.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_2.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_3.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_5.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_6.json, reigh-worker-orchestrator/gpu_orchestrator/control_loop.py, reigh-worker-orchestrator/gpu_orchestrator/worker_spawner.py, reigh-worker-orchestrator/scripts/debug/commands/runpod.py, reigh-worker-orchestrator/scripts/debug/commands/storage.py, reigh-worker-orchestrator/scripts/debug/services/workers.py, reigh-worker-orchestrator/scripts/shutdown_all_workers.py, reigh-worker-orchestrator/scripts/spawn_gpu.py, reigh-worker-orchestrator/scripts/ssh_to_worker.py, reigh-worker-orchestrator/scripts/terminate_single_worker.py, reigh-worker-orchestrator/scripts/test_runpod.py",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .claude/",
+    "Advisory audit finding: Sense check SC8 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC9 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC10 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC11 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC12 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC13 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC14 is missing an executor acknowledgment."
+  ],
+  "task_updates": [
+    {
+      "task_id": "T6",
+      "status": "done",
+      "executor_notes": "Migrated the script consumers off the in-tree RunPod client. Group A now imports the adapter from `gpu_orchestrator.worker_spawner`: `scripts/spawn_gpu.py`, `scripts/ssh_to_worker.py`, `scripts/shutdown_all_workers.py`, `scripts/terminate_single_worker.py`, `scripts/test_runpod.py`, `scripts/debug/commands/storage.py`, and `scripts/debug/services/workers.py`. The sync-shaped entry points that needed wrappers now use `asyncio.run(...)` (`ssh_to_worker.py`, debug storage/workers internals), while already-async CLIs now `await` adapter methods directly. `scripts/spot_instance_lifetime_test.py` was also updated on disk to use `create_worker_spawner(...)` plus `RunPodConfig.from_env()` and to wrap adapter termination with `asyncio.run(...)`; it is hidden from git status by the repo's `/scripts/*test*.py` ignore rule. Group B moved to the package helpers: `scripts/uv_lock_benchmark.py` now imports `create_pod`/`get_pod_ssh_details` from `runpod_lifecycle.api`, `SSHClient` from `runpod_lifecycle.ssh`, and async termination from `runpod_lifecycle.terminate`; `scripts/uv_e2e_test.py` was updated the same way on disk but is likewise hidden by the ignore rule. `scripts/debug/commands/runpod.py` was migrated from raw `runpod` SDK list/orphan logic to `RunPodConfig.from_env()`, `list_pods(...)`, `find_orphans(...)`, and `terminate(...)`. No package export gap was hit in this batch: `runpod_lifecycle.ssh.SSHClient` is importable from the submodule, so T10 does not need to fire based on T6. Verification: `python -m py_compile scripts/spawn_gpu.py scripts/ssh_to_worker.py scripts/shutdown_all_workers.py scripts/terminate_single_worker.py scripts/test_runpod.py scripts/spot_instance_lifetime_test.py scripts/uv_e2e_test.py scripts/uv_lock_benchmark.py scripts/debug/commands/storage.py scripts/debug/services/workers.py scripts/debug/commands/runpod.py gpu_orchestrator/control_loop.py` exited 0.",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/scripts/spawn_gpu.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/scripts/ssh_to_worker.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/scripts/shutdown_all_workers.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/scripts/terminate_single_worker.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/scripts/test_runpod.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/scripts/debug/commands/storage.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/scripts/debug/services/workers.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/scripts/debug/commands/runpod.py"
+      ],
+      "commands_run": [
+        "sed -n '1,240p' scripts/spawn_gpu.py",
+        "sed -n '1,260p' scripts/ssh_to_worker.py",
+        "sed -n '1,320p' scripts/shutdown_all_workers.py",
+        "sed -n '1,240p' scripts/terminate_single_worker.py",
+        "sed -n '1,320p' scripts/test_runpod.py",
+        "sed -n '1,320p' scripts/spot_instance_lifetime_test.py",
+        "sed -n '320,520p' scripts/spot_instance_lifetime_test.py",
+        "sed -n '1,320p' scripts/uv_e2e_test.py",
+        "sed -n '1,320p' scripts/uv_lock_benchmark.py",
+        "sed -n '1,320p' scripts/debug/commands/storage.py",
+        "sed -n '1,240p' scripts/debug/services/workers.py",
+        "sed -n '1,260p' scripts/debug/commands/runpod.py",
+        "sed -n '1,260p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/discovery.py",
+        "sed -n '1,260p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/ssh.py",
+        "sed -n '1,260p' /Users/peteromalley/Documents/reigh-workspace/runpod-lifecycle/src/runpod_lifecycle/api.py",
+        "rg -n \"create_runpod_client|gpu_orchestrator\\.runpod|runpod_client|worker_spawner\" tests scripts -g '*.py'",
+        "python -m py_compile scripts/spawn_gpu.py scripts/ssh_to_worker.py scripts/shutdown_all_workers.py scripts/terminate_single_worker.py scripts/test_runpod.py scripts/spot_instance_lifetime_test.py scripts/uv_e2e_test.py scripts/uv_lock_benchmark.py scripts/debug/commands/storage.py scripts/debug/services/workers.py scripts/debug/commands/runpod.py gpu_orchestrator/control_loop.py"
+      ]
+    },
+    {
+      "task_id": "T7",
+      "status": "done",
+      "executor_notes": "Rewired `gpu_orchestrator/control_loop.py` to the adapter. The file now imports `create_worker_spawner` from `gpu_orchestrator.worker_spawner`, loads `self.config = OrchestratorConfig.from_env()` before adapter construction, and sets `self.runpod = create_worker_spawner(self.config, self.db)`. The async boundary from T4 is now implemented in the file: all 19 current `self.runpod` method-call sites are awaited, while the only remaining sync uses are the two expected non-await cases from the audit drift: `generate_worker_id()` and the plain `self.runpod.gpu_type` attribute read used before `create_worker_record(...)`. The Supabase ownership bracket remains in `control_loop.py`: `create_worker_record(...)` still happens before `await self.runpod.spawn_worker(...)`, and `update_worker_status(...)` still happens in the control loop after spawn/terminate transitions; no DB writes were moved into the adapter. Storage paths were also converted from legacy private client helpers to the new async adapter surface: `_get_storage_volume_id` -> `await self.runpod.get_storage_volume_id(...)`, `check_storage_health` -> awaited adapter call, `_expand_network_volume` -> `await self.runpod.expand_network_volume(...)`. Verification: focused grep confirms the awaited call-site conversion in `gpu_orchestrator/control_loop.py`, and `python -m py_compile gpu_orchestrator/control_loop.py` passed as part of the full syntax gate. Production-code grep for `from gpu_orchestrator.runpod import` / `from gpu_orchestrator.runpod.` is clean except the intentional `startup_script` import in `gpu_orchestrator/worker_spawner.py`; remaining non-startup-script hits are obsolete tests slated for T8.",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/gpu_orchestrator/control_loop.py",
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_6.json"
+      ],
+      "commands_run": [
+        "sed -n '1,220p' gpu_orchestrator/control_loop.py",
+        "sed -n '360,1710p' gpu_orchestrator/control_loop.py",
+        "rg -n \"self\\.runpod\\.|create_runpod_client|from \\.runpod|from gpu_orchestrator\\.runpod\" gpu_orchestrator/control_loop.py gpu_orchestrator -g '*.py'",
+        "rg -n -C 2 \"self\\.runpod\\.(terminate_worker|check_and_initialize_worker|start_worker_process|get_pod_status|spawn_worker|_get_storage_volume_id|check_storage_health|_expand_network_volume|generate_worker_id|gpu_type)\" gpu_orchestrator/control_loop.py",
+        "rg -n -C 1 \"self\\.runpod\\.(terminate_worker|check_and_initialize_worker|start_worker_process|get_pod_status|spawn_worker|get_storage_volume_id|check_storage_health|expand_network_volume|generate_worker_id|gpu_type)\" gpu_orchestrator/control_loop.py",
+        "rg -n \"from \\.runpod import|from gpu_orchestrator\\.runpod import|from gpu_orchestrator\\.runpod\\.\" scripts gpu_orchestrator/control_loop.py gpu_orchestrator/worker_spawner.py -g '*.py'",
+        "python -m py_compile scripts/spawn_gpu.py scripts/ssh_to_worker.py scripts/shutdown_all_workers.py scripts/terminate_single_worker.py scripts/test_runpod.py scripts/spot_instance_lifetime_test.py scripts/uv_e2e_test.py scripts/uv_lock_benchmark.py scripts/debug/commands/storage.py scripts/debug/services/workers.py scripts/debug/commands/runpod.py gpu_orchestrator/control_loop.py"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC6",
+      "executor_note": "Yes for the production scripts in scope. The client-behavior scripts now import `create_worker_spawner` and call adapter methods through either existing async CLIs or new `asyncio.run(...)` wrappers where the entrypoint is sync-shaped. The helper-only scripts use `runpod_lifecycle.api` / `runpod_lifecycle.ssh`, and the debug runpod command now uses `list_pods` / `find_orphans`. The full `py_compile` sweep over every edited file in this batch exited 0. Note that `scripts/spot_instance_lifetime_test.py` and `scripts/uv_e2e_test.py` were updated and compiled on disk but are hidden from git status by the repo's `/scripts/*test*.py` ignore rule."
+    },
+    {
+      "sense_check_id": "SC7",
+      "executor_note": "`control_loop.py` now constructs `self.runpod` via `create_worker_spawner(self.config, self.db)`, after loading `self.config`. All current `self.runpod` method-call sites in the file are awaited; the only remaining sync uses are the expected non-await cases from the T4 audit drift: `generate_worker_id()` and the `gpu_type` attribute read. The `create_worker_record -> spawn_worker -> update_worker_status` ownership stays in `control_loop.py`, not in the adapter. Production-code grep is clean for `from gpu_orchestrator.runpod import` / `from gpu_orchestrator.runpod.` except the intentional `startup_script` import in `worker_spawner.py`; residual non-startup-script hits are obsolete tests scheduled for T8 deletion."
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "output": "T4 completed. The `control_loop.py` async boundary is now mapped: the file currently has 21 `self.runpod` references total, of which 19 are method calls and all 19 are inside `async def` functions. The 18 line numbers called out in the batch prompt were cross-checked individually and every enclosing function is async. I also found drift from the plan metadata: there is one additional async method call at line 1380 (`_terminate_worker`), plus a sync constructor assignment at line 44 and an async attribute read at line 1303. Practical consequence for T5\u2013T7: every adapter method replacing current `self.runpod` calls should be `async def`, and every current call site will need `await` except `generate_worker_id()` and the plain `gpu_type` attribute read. Script audit is also complete: `spawn_gpu.py`, `shutdown_all_workers.py`, `terminate_single_worker.py`, and `test_runpod.py` already use `asyncio.run(...)` at the CLI boundary; `ssh_to_worker.py`, `spot_instance_lifetime_test.py`, `uv_e2e_test.py`, and `uv_lock_benchmark.py` have main guards but no `asyncio.run(...)` yet and will need wrappers once migrated. The sync helper modules `scripts/debug/commands/storage.py`, `scripts/debug/services/workers.py`, and likely `scripts/debug/commands/runpod.py` will need internal sync wrappers around new async calls.",
+  "files_changed": [
+    "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json"
+  ],
+  "commands_run": [
+    "rg -n \"self\\.runpod\\.|create_runpod_client|RunpodClient\" gpu_orchestrator/control_loop.py",
+    "python - <<'PY' ... AST audit for plan line numbers in gpu_orchestrator/control_loop.py ... PY",
+    "python - <<'PY' ... enumerate all self.runpod occurrences and enclosing functions in gpu_orchestrator/control_loop.py ... PY",
+    "sed -n '360,470p' gpu_orchestrator/control_loop.py",
+    "sed -n '1110,1355p' gpu_orchestrator/control_loop.py",
+    "sed -n '1370,1665p' gpu_orchestrator/control_loop.py",
+    "rg -n \"if __name__ == ['\\\"]__main__['\\\"]|asyncio\\.run\\(|create_runpod_client|RunpodClient|gpu_orchestrator\\.runpod|runpod_lifecycle\" scripts",
+    "python - <<'PY' ... AST summary of target scripts main guards / asyncio.run usage ... PY",
+    "for f in scripts/spawn_gpu.py scripts/ssh_to_worker.py scripts/shutdown_all_workers.py scripts/terminate_single_worker.py scripts/test_runpod.py scripts/spot_instance_lifetime_test.py scripts/uv_e2e_test.py scripts/uv_lock_benchmark.py scripts/debug/commands/storage.py scripts/debug/services/workers.py scripts/debug/commands/runpod.py; do rg -n 'if __name__ ==|asyncio\\.run\\(|create_runpod_client|RunpodClient|self\\.runpod\\.|runpod_lifecycle|gpu_orchestrator\\.runpod' \"$f\"; done"
+  ],
+  "deviations": [
+    "Plan metadata is stale against the current file: `gpu_orchestrator/control_loop.py` now has 21 `self.runpod` references total, not the previously cited 23. The extra live async method site not listed in the batch prompt is line 1380 in `_terminate_worker`.",
+    "T4 was executable despite T3 being blocked because it is a read-only audit task; no dependency install or branch creation was required.",
+    "Advisory observation mismatch: executor claimed files not observed in git status/content hash delta: reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json",
+    "Advisory audit finding: Executor claimed changed files not present in git status: reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_1.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_2.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_3.json, reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json",
+    "Advisory audit finding: Git status shows changed files not claimed by any task: .claude/",
+    "Advisory audit finding: Sense check SC5 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC6 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC7 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC8 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC9 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC10 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC11 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC12 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC13 is missing an executor acknowledgment.",
+    "Advisory audit finding: Sense check SC14 is missing an executor acknowledgment."
+  ],
+  "task_updates": [
+    {
+      "task_id": "T4",
+      "status": "done",
+      "executor_notes": "Async/sync audit completed against `gpu_orchestrator/control_loop.py` and the target scripts. Current `self.runpod` usage in `control_loop.py` has drifted from the plan metadata: there are 21 total `self.runpod` references in the file today, comprising 19 method calls plus 1 constructor assignment (`__init__` line 44) and 1 attribute read (`self.runpod.gpu_type` at line 1303). All 19 method-call sites are inside `async def` functions. The 18 approximate lines called out in the task (386, 448, 465, 1126, 1205, 1301, 1306, 1336, 1342, 1480, 1502, 1517, 1541, 1544, 1557, 1598, 1600, 1651) were cross-checked and every enclosing function is async: `_handle_early_termination`, `_handle_spawning_workers`, `_mark_worker_error`, `_collect_worker_diagnostics`, `_spawn_worker`, `_check_storage_health`, `_check_error_worker_cleanup`, `_failsafe_stale_worker_check`, `_efficient_zombie_check`. Additional drift found: line 1380 in `_terminate_worker` is another async `self.runpod.terminate_worker(...)` call not listed in the task prompt; line 44 (`self.runpod = create_runpod_client()`) is sync `__init__`; line 1303 is an async attribute read used by `create_worker_record`. Practical contract for T5-T7: all adapter methods that replace current method calls must be `async def`, and every current call site will need `await` except `generate_worker_id()` and the plain `gpu_type` attribute read. Script audit: the target script entrypoints are sync-shaped overall. Files already using `asyncio.run(...)` at the CLI boundary: `scripts/spawn_gpu.py`, `scripts/shutdown_all_workers.py`, `scripts/terminate_single_worker.py`, `scripts/test_runpod.py`. Files with `if __name__ == '__main__'` but no current `asyncio.run(...)`, so they will need wrappers once migrated to async package/adapter calls: `scripts/ssh_to_worker.py`, `scripts/spot_instance_lifetime_test.py`, `scripts/uv_e2e_test.py`, `scripts/uv_lock_benchmark.py`. Non-CLI sync helper modules that will need internal `asyncio.run(...)` (or equivalent sync wrapper) around new async calls when edited in T6: `scripts/debug/commands/storage.py`, `scripts/debug/services/workers.py`, and likely `scripts/debug/commands/runpod.py` if switched to `runpod_lifecycle.list_pods/find_orphans`.",
+      "files_changed": [
+        "/Users/peteromalley/Documents/reigh-workspace/reigh-worker-orchestrator/.megaplan/plans/roll-out-the-runpod-lifecycle-20260423-2303/execution_batch_4.json"
+      ],
+      "commands_run": [
+        "rg -n \"self\\.runpod\\.|create_runpod_client|RunpodClient\" gpu_orchestrator/control_loop.py",
+        "python - <<'PY' ... AST audit for plan line numbers in gpu_orchestrator/control_loop.py ... PY",
+        "python - <<'PY' ... enumerate all self.runpod occurrences and enclosing functions in gpu_orchestrator/control_loop.py ... PY",
+        "sed -n '360,470p' gpu_orchestrator/control_loop.py",
+        "sed -n '1110,1355p' gpu_orchestrator/control_loop.py",
+        "sed -n '1370,1665p' gpu_orchestrator/control_loop.py",
+        "rg -n \"if __name__ == ['\\\"]__main__['\\\"]|asyncio\\.run\\(|create_runpod_client|RunpodClient|gpu_orchestrator\\.runpod|runpod_lifecycle\" scripts",
+        "python - <<'PY' ... AST summary of target scripts main guards / asyncio.run usage ... PY",
+        "for f in scripts/spawn_gpu.py scripts/ssh_to_worker.py scripts/shutdown_all_workers.py scripts/terminate_single_worker.py scripts/test_runpod.py scripts/spot_instance_lifetime_test.py scripts/uv_e2e_test.py scripts/uv_lock_benchmark.py scripts/debug/commands/storage.py scripts/debug/services/workers.py scripts/debug/commands/runpod.py; do rg -n 'if __name__ ==|asyncio\\.run\\(|create_runpod_client|RunpodClient|self\\.runpod\\.|runpod_lifecycle|gpu_orchestrator\\.runpod' \"$f\"; done"
+      ]
+    }
+  ],
+  "sense_check_acknowledgments": [
+    {
+      "sense_check_id": "SC4",
+      "executor_note": "Yes. I cross-checked every listed line number against the enclosing function via AST and confirmed they all currently sit inside `async def`s. I also recorded drift: the current file has 21 `self.runpod` references total, with one extra async terminate site at line 1380 not present in the batch prompt, plus a sync constructor assignment at line 44 and an async attribute read at line 1303. The target CLI scripts that still need `asyncio.run(...)` wrappers were identified explicitly."
+    }
+  ]
+}

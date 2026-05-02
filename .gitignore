@@ -163,3 +163,4 @@ package-lock.json
 logs/
 *.log.megaplan/
 .desloppify/
+this.env
