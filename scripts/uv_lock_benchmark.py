@@ -35,6 +35,7 @@ IMAGE = "runpod/pytorch:2.4.0-py3.11-cuda12.4.1-devel-ubuntu22.04"
 # Cheapest available community GPU — we only need it for pip/uv resolve, not training
 GPU_TYPE = "NVIDIA GeForce RTX 3090"
 WORKER_REPO = "https://github.com/banodoco/Reigh-Worker.git"
+DEFAULT_RUNPOD_DISK_GB = 200
 UV_LOCK_DEST = os.path.join(
     os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
     "reigh-worker",
@@ -98,8 +99,8 @@ def main():
             gpu_type_id=GPU_TYPE,
             image_name=IMAGE,
             name="uv-lock-benchmark",
-            disk_in_gb=50,
-            container_disk_in_gb=50,
+            disk_in_gb=DEFAULT_RUNPOD_DISK_GB,
+            container_disk_in_gb=DEFAULT_RUNPOD_DISK_GB,
             min_vcpu_count=4,
             min_memory_in_gb=16,
             public_key_string=SSH_PUBLIC_KEY or None,
@@ -114,8 +115,8 @@ def main():
                 gpu_type_id=GPU_TYPE,
                 gpu_count=1,
                 cloud_type="COMMUNITY",
-                volume_in_gb=50,
-                container_disk_in_gb=50,
+                volume_in_gb=DEFAULT_RUNPOD_DISK_GB,
+                container_disk_in_gb=DEFAULT_RUNPOD_DISK_GB,
                 min_vcpu_count=4,
                 min_memory_in_gb=16,
                 ports="22/tcp",

@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 SSHResult: TypeAlias = tuple[int, str, str] | None
 
 LEGACY_STORAGE_VOLUMES = ("Peter", "EU-NO-1", "EU-CZ-1", "EUR-IS-1")
+DEFAULT_DUAL_STACK_DISK_GB = 200
 STORAGE_CHECK_COMMAND = """
             echo "=== WORKSPACE STORAGE ==="
             df -h /workspace 2>/dev/null | tail -1
@@ -276,9 +277,9 @@ class WorkerSpawnerAdapter:
         if not runpod_config.storage_volumes:
             overrides["storage_volumes"] = LEGACY_STORAGE_VOLUMES
         if "RUNPOD_DISK_SIZE_GB" not in os.environ:
-            overrides["disk_size_gb"] = 50
+            overrides["disk_size_gb"] = DEFAULT_DUAL_STACK_DISK_GB
         if "RUNPOD_CONTAINER_DISK_GB" not in os.environ:
-            overrides["container_disk_gb"] = 50
+            overrides["container_disk_gb"] = DEFAULT_DUAL_STACK_DISK_GB
         return runpod_config.merge(**overrides) if overrides else runpod_config
 
     def _expand_network_volume_sync(self, volume_id: str, new_size_gb: int) -> bool:
@@ -390,9 +391,9 @@ def create_worker_spawner(config: Any, db: Any) -> WorkerSpawnerAdapter:
     if "RUNPOD_STORAGE_VOLUMES" not in os.environ:
         overrides["storage_volumes"] = LEGACY_STORAGE_VOLUMES
     if "RUNPOD_DISK_SIZE_GB" not in os.environ:
-        overrides["disk_size_gb"] = 50
+        overrides["disk_size_gb"] = DEFAULT_DUAL_STACK_DISK_GB
     if "RUNPOD_CONTAINER_DISK_GB" not in os.environ:
-        overrides["container_disk_gb"] = 50
+        overrides["container_disk_gb"] = DEFAULT_DUAL_STACK_DISK_GB
     runpod_config = RunPodConfig.from_env(**overrides)
     return WorkerSpawnerAdapter(config, db, runpod_config)
 

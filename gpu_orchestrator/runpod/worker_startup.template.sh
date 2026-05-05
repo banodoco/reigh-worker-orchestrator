@@ -39,6 +39,11 @@ echo "Kernel: $(uname -a | head -c 200)"
 echo "Log file: $LOG_FILE"
 echo
 
+echo "=== EARLY DISK DIAGNOSTICS ==="
+df -h /
+df -h /workspace || true
+echo
+
 # Error handling with useful tails
 trap 'echo "❌ SCRIPT FAILED at line $LINENO with exit code $? at $(date -Iseconds)"; \
       echo "--- tail $APT_UPDATE_LOG"; tail -200 "$APT_UPDATE_LOG" 2>/dev/null || true; \

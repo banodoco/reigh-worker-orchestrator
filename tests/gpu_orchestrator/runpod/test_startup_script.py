@@ -56,6 +56,27 @@ def test_rendered_startup_script_uses_strict_helper_for_initial_phase_patch():
     assert "exit 1" in script
 
 
+def test_rendered_startup_script_logs_early_disk_diagnostics_before_package_work():
+    script = startup_script.render_startup_script(
+        worker_id="gpu-worker-1",
+        supabase_url="https://example.supabase.co",
+        supabase_anon_key="anon",
+        supabase_service_key="service",
+        replicate_api_token="replicate",
+        max_task_wait_minutes=7,
+        has_pending_tasks=True,
+    )
+
+    logging_index = script.index('exec > >(tee -a "$LOG_FILE") 2>&1')
+    diagnostics_index = script.index("=== EARLY DISK DIAGNOSTICS ===")
+    root_df_index = script.index("\ndf -h /\n")
+    workspace_df_index = script.index("\ndf -h /workspace || true\n")
+    apt_update_index = script.index('apt_retry "apt-get update"')
+
+    assert logging_index < diagnostics_index < root_df_index
+    assert root_df_index < workspace_df_index < apt_update_index
+
+
 def test_rendered_startup_script_bootstraps_uv_and_runs_locked_sync():
     script = startup_script.render_startup_script(
         worker_id="gpu-worker-2",
