@@ -17,8 +17,17 @@ from pathlib import Path
 project_root = Path(__file__).parent.parent
 sys.path.insert(0, str(project_root))
 
-from dotenv import load_dotenv
-from gpu_orchestrator.database import DatabaseClient
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # Keep pure export-builder tests independent of local env deps.
+    def load_dotenv():
+        return False
+
+
+def _database_client():
+    from gpu_orchestrator.database import DatabaseClient
+
+    return DatabaseClient()
 
 def clear_screen():
     """Clear the terminal screen."""
@@ -81,6 +90,162 @@ async def get_system_status(db: DatabaseClient):
         
     except Exception as e:
         return {'error': str(e)}
+
+def build_export_payload(data, *, imported_live_evidence=None, export_timestamp=None):
+    """Build a machine-readable dashboard export from already-fetched data."""
+    status = data.get('status', {}) if isinstance(data, dict) else {}
+    worker_health = data.get('worker_health', []) if isinstance(data, dict) else []
+    tasks = data.get('tasks', []) if isinstance(data, dict) else []
+    live_evidence = imported_live_evidence or data.get('imported_live_evidence', {}) if isinstance(data, dict) else {}
+
+    route_worker_health = _route_worker_health(worker_health)
+    route_totals = _route_totals(tasks, worker_health)
+    return {
+        'success': 'error' not in data,
+        'export_timestamp': export_timestamp or datetime.utcnow().isoformat(),
+        'status': status,
+        'worker_health': worker_health,
+        'recent_metrics': data.get('recent_metrics', {}),
+        'canary_panels': {
+            'selected_pool_totals': _selected_pool_totals(data, status),
+            'route_totals': route_totals,
+            'route_worker_health': route_worker_health,
+            'claim_suppression': data.get('claim_suppression') or status.get('claim_suppression') or {},
+            'quota_alerts': data.get('quota_alerts') or status.get('quota_alerts') or [],
+            'preflight_status': data.get('preflight_status') or status.get('preflight_status') or {},
+            'warm_cache_status': data.get('warm_cache_status') or status.get('warm_cache_status') or {},
+            'non_rayworker_route_health': _non_rayworker_route_health(live_evidence),
+        },
+    }
+
+def _selected_pool_totals(data, status):
+    task_counts = data.get('task_counts') or status.get('task_counts') or {}
+    return (
+        task_counts.get('selected_pool_totals')
+        or data.get('selected_pool_totals')
+        or status.get('selected_pool_totals')
+        or {}
+    )
+
+def _route_totals(tasks, worker_health):
+    totals = {}
+    for task in tasks:
+        route_key = task.get('route_key') or task.get('task_type') or 'unknown'
+        entry = totals.setdefault(
+            route_key,
+            {
+                'route_key': route_key,
+                'by_status': {},
+                'by_backend': {},
+                'by_profile': {},
+                'by_selector': {},
+            },
+        )
+        _increment(entry['by_status'], task.get('status') or 'unknown')
+        _increment(entry['by_backend'], task.get('worker_backend') or task.get('backend') or 'unknown')
+        _increment(entry['by_profile'], str(task.get('worker_profile') or task.get('profile') or 'unknown'))
+        selector = f"{task.get('selector_namespace') or 'unknown'}/{task.get('selector_version') or 'default'}"
+        _increment(entry['by_selector'], selector)
+
+    for worker in worker_health:
+        route_key = _worker_route_key(worker)
+        if not route_key:
+            continue
+        entry = totals.setdefault(
+            route_key,
+            {
+                'route_key': route_key,
+                'by_status': {},
+                'by_backend': {},
+                'by_profile': {},
+                'by_selector': {},
+            },
+        )
+        _increment(entry['by_backend'], _worker_backend(worker))
+        _increment(entry['by_profile'], str(_worker_profile(worker)))
+        selector = f"{_worker_selector_namespace(worker)}/{_worker_selector_version(worker)}"
+        _increment(entry['by_selector'], selector)
+    return dict(sorted(totals.items()))
+
+def _route_worker_health(worker_health):
+    routes = {}
+    for worker in worker_health:
+        route_key = _worker_route_key(worker) or 'unknown'
+        entry = routes.setdefault(
+            route_key,
+            {
+                'route_key': route_key,
+                'active_workers': 0,
+                'stale_workers': 0,
+                'workers': [],
+            },
+        )
+        status = str(worker.get('status') or '').lower()
+        health = str(worker.get('health_status') or '').lower()
+        if status in {'active', 'running', 'ready'}:
+            entry['active_workers'] += 1
+        if 'stale' in health or worker.get('is_stale') is True:
+            entry['stale_workers'] += 1
+        entry['workers'].append(
+            {
+                'id': worker.get('id'),
+                'status': worker.get('status'),
+                'health_status': worker.get('health_status'),
+                'backend': _worker_backend(worker),
+                'profile': _worker_profile(worker),
+                'selector_namespace': _worker_selector_namespace(worker),
+                'selector_version': _worker_selector_version(worker),
+            }
+        )
+    return dict(sorted(routes.items()))
+
+def _non_rayworker_route_health(live_evidence):
+    if not live_evidence:
+        return {}
+    if isinstance(live_evidence, dict) and 'routes' in live_evidence:
+        routes = live_evidence['routes']
+        if isinstance(routes, list):
+            return {
+                route.get('route_key'): route
+                for route in routes
+                if isinstance(route, dict) and route.get('route_key')
+            }
+        if isinstance(routes, dict):
+            return routes
+    if isinstance(live_evidence, list):
+        return {
+            item.get('route_key'): item
+            for item in live_evidence
+            if isinstance(item, dict) and item.get('route_key')
+        }
+    return live_evidence if isinstance(live_evidence, dict) else {}
+
+def _increment(mapping, key):
+    mapping[key] = mapping.get(key, 0) + 1
+
+def _worker_metadata(worker):
+    metadata = worker.get('metadata')
+    return metadata if isinstance(metadata, dict) else {}
+
+def _worker_route_key(worker):
+    metadata = _worker_metadata(worker)
+    return worker.get('route_key') or metadata.get('route_key')
+
+def _worker_backend(worker):
+    metadata = _worker_metadata(worker)
+    return worker.get('worker_backend') or worker.get('backend') or metadata.get('worker_backend') or metadata.get('backend') or 'unknown'
+
+def _worker_profile(worker):
+    metadata = _worker_metadata(worker)
+    return worker.get('worker_profile') or worker.get('profile') or metadata.get('worker_profile') or metadata.get('profile') or 'unknown'
+
+def _worker_selector_namespace(worker):
+    metadata = _worker_metadata(worker)
+    return worker.get('selector_namespace') or metadata.get('selector_namespace') or 'unknown'
+
+def _worker_selector_version(worker):
+    metadata = _worker_metadata(worker)
+    return worker.get('selector_version') or metadata.get('selector_version') or 'default'
 
 def display_dashboard(data):
     """Display the dashboard."""
@@ -184,7 +349,7 @@ async def run_dashboard(refresh_interval=10):
     load_dotenv()
     
     try:
-        db = DatabaseClient()
+        db = _database_client()
         
         print("🚀 Starting Orchestrator Dashboard...")
         print("   Connecting to database...")
@@ -229,11 +394,9 @@ async def export_status():
     load_dotenv()
     
     try:
-        db = DatabaseClient()
+        db = _database_client()
         data = await get_system_status(db)
-        
-        # Add timestamp
-        data['export_timestamp'] = datetime.utcnow().isoformat()
+        data = build_export_payload(data)
         
         # Print JSON for consumption by monitoring tools
         print(json.dumps(data, indent=2, default=str))
