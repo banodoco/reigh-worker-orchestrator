@@ -43,6 +43,13 @@ def make_config(**overrides) -> OrchestratorConfig:
         "task_failure_window_minutes": 30,
         "auto_start_worker_process": True,
         "use_new_scaling_logic": True,
+        "worker_backend": "wgp",
+        "worker_profile": "1",
+        "worker_pool": "gpu-wgp-production",
+        "selector_namespace": "production",
+        "selector_version": None,
+        "worker_contract_version": 1,
+        "worker_run_id": None,
     }
     config_values.update(overrides)
     return OrchestratorConfig(**config_values)
@@ -54,6 +61,7 @@ def make_worker_state(
     has_active_task: bool = False,
     should_terminate: bool = False,
     in_startup_phase: bool = False,
+    is_route_stale: bool = False,
 ) -> DerivedWorkerState:
     """Create a mock worker state for testing."""
     now = datetime.now(timezone.utc)
@@ -75,9 +83,17 @@ def make_worker_state(
         in_startup_phase=in_startup_phase,
         has_ever_claimed_task=has_active_task,
         has_active_task=has_active_task,
+        worker_backend="wgp",
+        worker_profile="1",
+        worker_pool="gpu-wgp-production",
+        selector_namespace="production",
+        selector_version=None,
+        worker_contract_version=1,
+        worker_run_id=None,
         is_gpu_broken=False,
         is_not_claiming=False,
         is_stale=False,
+        is_route_stale=is_route_stale,
         should_promote_to_active=False,
         should_terminate=should_terminate,
         termination_reason=None,

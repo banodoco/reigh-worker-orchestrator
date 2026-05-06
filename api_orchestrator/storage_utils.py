@@ -59,8 +59,9 @@ async def upload_to_supabase_storage_only(client: httpx.AsyncClient, task_id: st
         file_size_mb = len(file_data) / (1024 * 1024)
         logger.info(f"Uploading {len(file_data)} bytes ({file_size_mb:.2f}MB) to Supabase storage (no task completion) as {safe_filename}")
         
-        # Construct storage path
-        storage_path = f"task_outputs/{safe_filename}"
+        # Construct canonical intermediate artifact path. This helper does not
+        # have a task owner id, so it uses an API-orchestrator namespace.
+        storage_path = f"api-orchestrator/tasks/{task_id}/intermediates/{safe_filename}"
         upload_url = f"{supabase_url}/storage/v1/object/image_uploads/{storage_path}"
         
         headers = {
@@ -80,6 +81,7 @@ async def upload_to_supabase_storage_only(client: httpx.AsyncClient, task_id: st
                     "content_type": content_type,
                     "byte_count": len(file_data),
                     "storage_path": storage_path,
+                    "artifact_class": "intermediate",
                 },
             )
             return shadow_public_url(task_id, safe_filename, operation="storage-upload-only")
@@ -227,6 +229,7 @@ async def _upload_presigned_url(client: httpx.AsyncClient, task_id: str, file_da
         "task_id": task_id,
         "filename": filename,
         "content_type": content_type,
+        "artifact_class": "final",
         "generate_thumbnail_url": bool(first_frame_data)  # Request thumbnail URL if we have screenshot
     }
     

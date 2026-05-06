@@ -54,6 +54,29 @@ class TestTerminatingWorkersExcluded:
         assert decision.spawning_count == 0
 
 
+class TestRouteStaleWorkersExcluded:
+    """Tests for excluding stale-route workers from selected-pool capacity."""
+
+    def test_route_stale_idle_worker_does_not_cover_queued_task(self):
+        config = make_config(min_active_gpus=0, machines_to_keep_idle=0)
+        worker_states = [
+            make_worker_state(
+                "stale-idle",
+                WorkerLifecycle.ACTIVE_READY,
+                has_active_task=False,
+                is_route_stale=True,
+            ),
+        ]
+        task_counts = TaskCounts(queued=1, active_cloud=0, total=1)
+
+        decision = calculate_scaling_decision_pure(worker_states, task_counts, config, failure_rate_ok=True)
+
+        assert decision.active_count == 0
+        assert decision.current_capacity == 0
+        assert decision.workers_covering_tasks == 0
+        assert decision.workers_to_spawn == 1
+
+
 class TestIdleWorkerCoversTask:
     """Tests for idle workers covering queued tasks."""
 

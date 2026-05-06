@@ -4,6 +4,7 @@ import inspect
 import importlib
 import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -121,6 +122,39 @@ def test_worker_spawner_adapter_async_contract() -> None:
         assert inspect.iscoroutinefunction(getattr(WorkerSpawnerAdapter, method_name))
 
     assert not inspect.iscoroutinefunction(WorkerSpawnerAdapter.generate_worker_id)
+
+
+def test_worker_spawner_threads_selected_pool_contract_to_env_and_metadata() -> None:
+    from gpu_orchestrator.worker_spawner import WorkerSpawnerAdapter
+    from runpod_lifecycle import RunPodConfig
+
+    config = SimpleNamespace(
+        worker_backend="vibecomfy",
+        worker_profile="3",
+        worker_pool="gpu-vibecomfy-canary",
+        selector_namespace="canary",
+        selector_version="42",
+        worker_contract_version=2,
+        worker_run_id="run-abc",
+    )
+    adapter = WorkerSpawnerAdapter(config, db=None, runpod_config=RunPodConfig(api_key="api-key"))
+
+    env = adapter._build_worker_env("worker-1", worker_env=None)
+    metadata = adapter.selected_route_metadata()
+
+    assert env["REIGH_BACKEND"] == "vibecomfy"
+    assert env["WORKER_BACKEND"] == "vibecomfy"
+    assert env["REIGH_WORKER_PROFILE"] == "3"
+    assert env["WGP_PROFILE"] == "3"
+    assert env["REIGH_WORKER_POOL"] == "gpu-vibecomfy-canary"
+    assert env["REIGH_SELECTOR_NAMESPACE"] == "canary"
+    assert env["REIGH_SELECTOR_VERSION"] == "42"
+    assert env["REIGH_WORKER_CONTRACT_VERSION"] == "2"
+    assert env["REIGH_WORKER_RUN_ID"] == "run-abc"
+    assert env["VIBECOMFY_MEMORY_PROFILE"] == "3"
+    assert metadata["worker_backend"] == "vibecomfy"
+    assert metadata["route_contract"]["selected_backend"] == "vibecomfy"
+    assert metadata["route_contract"]["route_run_id"] == "run-abc"
 
 
 def test_worker_spawner_normalizes_missing_disk_env_to_dual_stack_default(monkeypatch) -> None:

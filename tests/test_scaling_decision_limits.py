@@ -69,6 +69,24 @@ class TestMaxCapacity:
         assert decision.workers_to_spawn == 0
         assert decision.at_max_capacity is True
 
+    def test_route_stale_worker_does_not_consume_new_route_max_capacity(self):
+        config = make_config(min_active_gpus=0, max_active_gpus=1, machines_to_keep_idle=0)
+        worker_states = [
+            make_worker_state(
+                "stale-active",
+                WorkerLifecycle.ACTIVE_READY,
+                has_active_task=False,
+                is_route_stale=True,
+            ),
+        ]
+        task_counts = TaskCounts(queued=1, active_cloud=0, total=1)
+
+        decision = calculate_scaling_decision_pure(worker_states, task_counts, config, failure_rate_ok=True)
+
+        assert decision.current_capacity == 0
+        assert decision.at_max_capacity is False
+        assert decision.workers_to_spawn == 1
+
 
 class TestFailureRate:
     """Tests for failure rate blocking."""

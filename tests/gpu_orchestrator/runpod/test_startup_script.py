@@ -56,6 +56,58 @@ def test_rendered_startup_script_uses_strict_helper_for_initial_phase_patch():
     assert "exit 1" in script
 
 
+def test_rendered_startup_script_marks_ready_only_after_preflight_passes():
+    script = startup_script.render_startup_script(
+        worker_id="gpu-worker-1",
+        supabase_url="https://example.supabase.co",
+        supabase_anon_key="anon",
+        supabase_service_key="service",
+        replicate_api_token="replicate",
+        max_task_wait_minutes=7,
+        has_pending_tasks=True,
+    )
+
+    assert "wait_worker_preflight_ready_or_exit()" in script
+    assert 'preflight_status" = "passed"' in script
+    assert 'preflight_status" = "failed"' in script
+    assert "kill -0 \"$worker_pid\"" in script
+    assert "is still running after 2 seconds" not in script
+    assert script.index('wait_worker_preflight_ready_or_exit "$WORKER_PID"') < script.index('update_worker_phase "ready"')
+
+
+def test_rendered_startup_script_exports_selected_pool_contract():
+    script = startup_script.render_startup_script(
+        worker_id="gpu-worker-vibe",
+        supabase_url="https://example.supabase.co",
+        supabase_anon_key="anon",
+        supabase_service_key="service",
+        replicate_api_token="replicate",
+        max_task_wait_minutes=7,
+        has_pending_tasks=True,
+        worker_backend="vibecomfy",
+        worker_profile="3",
+        worker_pool="gpu-vibecomfy-canary",
+        selector_namespace="canary",
+        selector_version="42",
+        worker_contract_version=2,
+        worker_run_id="run-abc",
+    )
+
+    assert 'export REIGH_BACKEND="vibecomfy"' in script
+    assert 'export WORKER_BACKEND="$REIGH_BACKEND"' in script
+    assert 'export REIGH_WORKER_PROFILE="3"' in script
+    assert 'export WGP_PROFILE="$REIGH_WORKER_PROFILE"' in script
+    assert 'export REIGH_WORKER_POOL="gpu-vibecomfy-canary"' in script
+    assert 'export REIGH_SELECTOR_NAMESPACE="canary"' in script
+    assert 'export REIGH_SELECTOR_VERSION="42"' in script
+    assert 'export REIGH_WORKER_CONTRACT_VERSION="2"' in script
+    assert 'export REIGH_WORKER_RUN_ID="run-abc"' in script
+    assert 'export VIBECOMFY_MEMORY_PROFILE="$REIGH_WORKER_PROFILE"' in script
+    assert "backend=$REIGH_BACKEND profile=$REIGH_WORKER_PROFILE" in script
+    assert 'export REIGH_WARM_CACHE_PRELOAD_MODEL=""' in script
+    assert 'export REIGH_WARM_CACHE_SKIP_REASON="pending_tasks"' in script
+
+
 def test_rendered_startup_script_logs_early_disk_diagnostics_before_package_work():
     script = startup_script.render_startup_script(
         worker_id="gpu-worker-1",
@@ -99,6 +151,47 @@ def test_rendered_startup_script_bootstraps_uv_and_runs_locked_sync():
     assert 'touch .uv-migrated' in script
     assert '"$UV_BIN" run --python 3.10 --extra cuda124 python worker.py' in script
     assert 'update_worker_phase "deps_verified"' in script
+
+
+def test_rendered_startup_script_uses_backend_profile_warm_cache_manifest(monkeypatch):
+    monkeypatch.setenv(
+        "REIGH_WARM_CACHE_CONFIG",
+        '{"routes":[{"backend":"vibecomfy","profile":"3","preload_model":"vibe-cache"}]}',
+    )
+    script = startup_script.render_startup_script(
+        worker_id="gpu-worker-2",
+        supabase_url="https://example.supabase.co",
+        supabase_anon_key="anon",
+        supabase_service_key="service",
+        replicate_api_token="replicate",
+        max_task_wait_minutes=7,
+        has_pending_tasks=False,
+        worker_backend="vibecomfy",
+        worker_profile="3",
+    )
+
+    assert 'export REIGH_WARM_CACHE_PRELOAD_MODEL="vibe-cache"' in script
+    assert 'export REIGH_WARM_CACHE_SOURCE="manifest"' in script
+    assert '--preload-model vibe-cache' in script
+
+
+def test_rendered_startup_script_preserves_pending_task_warm_cache_skip():
+    script = startup_script.render_startup_script(
+        worker_id="gpu-worker-2",
+        supabase_url="https://example.supabase.co",
+        supabase_anon_key="anon",
+        supabase_service_key="service",
+        replicate_api_token="replicate",
+        max_task_wait_minutes=7,
+        has_pending_tasks=True,
+        worker_backend="wgp",
+        worker_profile="1",
+    )
+
+    assert 'export REIGH_WARM_CACHE_PRELOAD_MODEL=""' in script
+    assert 'export REIGH_WARM_CACHE_SOURCE="pending_task_guard"' in script
+    assert 'export REIGH_WARM_CACHE_SKIP_REASON="pending_tasks"' in script
+    assert "--preload-model" not in script
 
 
 def test_rendered_startup_script_gates_uv_sync_on_inputs_sentinel():

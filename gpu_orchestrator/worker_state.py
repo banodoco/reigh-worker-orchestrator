@@ -66,11 +66,19 @@ class DerivedWorkerState:
     in_startup_phase: bool
     has_ever_claimed_task: bool
     has_active_task: bool
+    worker_backend: str
+    worker_profile: str
+    worker_pool: Optional[str]
+    selector_namespace: str
+    selector_version: Optional[str]
+    worker_contract_version: int
+    worker_run_id: Optional[str]
 
     # Derived health flags
     is_gpu_broken: bool               # VRAM=0 for too long
     is_not_claiming: bool             # Ready but not claiming for too long
     is_stale: bool                    # Heartbeat too old
+    is_route_stale: bool              # Worker was launched for a different selected pool contract
 
     # Action flags
     should_promote_to_active: bool    # Spawning worker with heartbeat
@@ -138,6 +146,9 @@ def derive_worker_state(
     db_status = worker['status']
     runpod_id = metadata.get('runpod_id')
     startup_phase = metadata.get('startup_phase')
+    worker_route_contract = _worker_route_contract(metadata)
+    current_route_contract = _current_route_contract(config)
+    is_route_stale = not _route_contracts_compatible(worker_route_contract, current_route_contract)
 
     # Parse timestamps
     created_at = _parse_timestamp(worker.get('created_at')) or now
@@ -214,7 +225,7 @@ def derive_worker_state(
             termination_reason = f"GPU not detected (VRAM=0) after {effective_age_sec:.0f}s"
             error_code = "GPU_NOT_DETECTED"
 
-    elif lifecycle == WorkerLifecycle.ACTIVE_READY:
+    elif lifecycle == WorkerLifecycle.ACTIVE_READY and not is_route_stale:
         if queued_count > 0 and not has_active_task and not has_ever_claimed:
             # Worker has NEVER claimed a task — effective_age_sec is a fair timer
             # because it has been idle since birth.
@@ -231,6 +242,13 @@ def derive_worker_state(
         # (600s). Since we don't track idle-start time, there's no safe way to
         # implement this check. The ACTIVE_STALE check (heartbeat timeout) already
         # catches truly dead workers.
+
+    if is_route_stale and not has_active_task and not should_terminate:
+        # Route-stale workers are intentionally drained through capacity handling:
+        # active tasks are allowed to finish, idle/still-spawning workers are
+        # terminated as normal scale actions instead of health failures.
+        termination_reason = _route_stale_reason(worker_route_contract, current_route_contract)
+        error_code = "STALE_ROUTE_CONTRACT"
 
     elif lifecycle == WorkerLifecycle.ACTIVE_INITIALIZING:
         if queued_count > 0 and not has_ever_claimed:
@@ -282,9 +300,17 @@ def derive_worker_state(
         in_startup_phase=in_startup_phase,
         has_ever_claimed_task=has_ever_claimed,
         has_active_task=has_active_task,
+        worker_backend=worker_route_contract["worker_backend"],
+        worker_profile=worker_route_contract["worker_profile"],
+        worker_pool=worker_route_contract.get("worker_pool"),
+        selector_namespace=worker_route_contract["selector_namespace"],
+        selector_version=worker_route_contract.get("selector_version"),
+        worker_contract_version=worker_route_contract["worker_contract_version"],
+        worker_run_id=worker_route_contract.get("worker_run_id"),
         is_gpu_broken=is_gpu_broken,
         is_not_claiming=is_not_claiming,
         is_stale=is_stale,
+        is_route_stale=is_route_stale,
         should_promote_to_active=should_promote,
         should_terminate=should_terminate,
         termination_reason=termination_reason,
@@ -342,6 +368,91 @@ def _determine_lifecycle(
 
     # Fallback
     return WorkerLifecycle.SPAWNING_POD_PENDING
+
+
+def _current_route_contract(config: 'OrchestratorConfig') -> Dict[str, Any]:
+    return {
+        "worker_backend": getattr(config, "worker_backend", "wgp"),
+        "worker_profile": getattr(config, "worker_profile", "1"),
+        "worker_pool": getattr(config, "worker_pool", None),
+        "selector_namespace": getattr(config, "selector_namespace", "production"),
+        "selector_version": getattr(config, "selector_version", None),
+        "worker_contract_version": getattr(config, "worker_contract_version", 1),
+        "worker_run_id": getattr(config, "worker_run_id", None),
+    }
+
+
+def _worker_route_contract(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    nested = metadata.get("route_contract") if isinstance(metadata.get("route_contract"), dict) else {}
+    return {
+        "worker_backend": (
+            metadata.get("worker_backend")
+            or metadata.get("selected_backend")
+            or nested.get("worker_backend")
+            or nested.get("selected_backend")
+            or "wgp"
+        ),
+        "worker_profile": (
+            metadata.get("worker_profile")
+            or metadata.get("selected_profile")
+            or nested.get("worker_profile")
+            or nested.get("selected_profile")
+            or "default"
+        ),
+        "worker_pool": metadata.get("worker_pool") or nested.get("worker_pool"),
+        "selector_namespace": (
+            metadata.get("selector_namespace")
+            or nested.get("selector_namespace")
+            or "production"
+        ),
+        "selector_version": metadata.get("selector_version") or nested.get("selector_version"),
+        "worker_contract_version": _int_or_default(
+            metadata.get("worker_contract_version") or nested.get("worker_contract_version"),
+            1,
+        ),
+        "worker_run_id": metadata.get("worker_run_id") or metadata.get("route_run_id") or nested.get("route_run_id"),
+    }
+
+
+def _route_contracts_compatible(worker: Dict[str, Any], current: Dict[str, Any]) -> bool:
+    return (
+        str(worker.get("worker_backend") or "").lower() == str(current.get("worker_backend") or "").lower()
+        and _profiles_compatible(str(current.get("worker_profile") or "default"), worker.get("worker_profile"))
+        and _optional_values_compatible(worker.get("worker_pool"), current.get("worker_pool"))
+        and str(worker.get("selector_namespace") or "production") == str(current.get("selector_namespace") or "production")
+        and str(worker.get("selector_version") or "") == str(current.get("selector_version") or "")
+        and int(worker.get("worker_contract_version") or 1) == int(current.get("worker_contract_version") or 1)
+    )
+
+
+def _profiles_compatible(current_profile: str, worker_profile: Any) -> bool:
+    profile = str(worker_profile or "")
+    return profile == current_profile or {profile, current_profile} == {"default", "1"}
+
+
+def _optional_values_compatible(worker_value: Any, current_value: Any) -> bool:
+    if worker_value in (None, "") or current_value in (None, ""):
+        return True
+    return str(worker_value) == str(current_value)
+
+
+def _route_stale_reason(worker: Dict[str, Any], current: Dict[str, Any]) -> str:
+    return (
+        "STALE_ROUTE_CONTRACT: worker="
+        f"{worker.get('worker_backend')}/{worker.get('worker_profile')}/"
+        f"{worker.get('selector_namespace')}/{worker.get('selector_version') or 'default'}/"
+        f"v{worker.get('worker_contract_version')} current="
+        f"{current.get('worker_backend')}/{current.get('worker_profile')}/"
+        f"{current.get('selector_namespace')}/{current.get('selector_version') or 'default'}/"
+        f"v{current.get('worker_contract_version')}"
+    )
+
+
+def _int_or_default(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
 
 
 def _parse_timestamp(ts: Optional[str]) -> Optional[datetime]:
@@ -433,8 +544,14 @@ def calculate_scaling_decision_pure(
     import math
 
     # Count workers by state (exclude those marked for termination)
-    active_states = [ws for ws in worker_states if ws.is_active and not ws.should_terminate]
-    spawning_states = [ws for ws in worker_states if ws.is_spawning and not ws.should_terminate]
+    active_states = [
+        ws for ws in worker_states
+        if ws.is_active and not ws.should_terminate and not ws.is_route_stale
+    ]
+    spawning_states = [
+        ws for ws in worker_states
+        if ws.is_spawning and not ws.should_terminate and not ws.is_route_stale
+    ]
 
     active_count = len(active_states)
     spawning_count = len(spawning_states)

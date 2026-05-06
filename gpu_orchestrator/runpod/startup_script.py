@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import shlex
+import json
+import os
 from pathlib import Path
 from textwrap import dedent
 
@@ -27,6 +29,9 @@ _WORKDIR_DISCOVERY_SNIPPET = dedent(
 STARTUP_PHASE_SEQUENCE = ("deps_installing", "deps_verified", "worker_starting", "ready")
 STRICT_STARTUP_PHASE = STARTUP_PHASE_SEQUENCE[0]
 STRICT_STARTUP_PHASE_ATTEMPTS = 3
+DEFAULT_WARM_CACHE_MODEL_BY_ROUTE = {
+    ("wgp", "1"): "wan_2_2_i2v_lightning_baseline_2_2_2",
+}
 
 
 def _escape_for_double_quotes(value: str) -> str:
@@ -43,9 +48,21 @@ def render_startup_script(
     replicate_api_token: str,
     max_task_wait_minutes: int,
     has_pending_tasks: bool,
+    worker_backend: str = "wgp",
+    worker_profile: str = "1",
+    worker_pool: str = "gpu-wgp-production",
+    selector_namespace: str = "production",
+    selector_version: str | None = None,
+    worker_contract_version: int = 1,
+    worker_run_id: str | None = None,
 ) -> str:
-    preload_flag = "" if has_pending_tasks else "--preload-model wan_2_2_i2v_lightning_baseline_2_2_2"
-    preload_mode = "NO (tasks pending)" if has_pending_tasks else "YES (no tasks pending)"
+    warm_cache = _resolve_startup_warm_cache(
+        has_pending_tasks=has_pending_tasks,
+        worker_backend=worker_backend,
+        worker_profile=worker_profile,
+    )
+    preload_flag = f"--preload-model {shlex.quote(warm_cache['preload_model'])}" if warm_cache["preload_model"] else ""
+    preload_mode = warm_cache["mode"]
 
     replacements = {
         "__WORKER_ID__": _escape_for_double_quotes(worker_id),
@@ -54,6 +71,16 @@ def render_startup_script(
         "__SUPABASE_SERVICE_KEY__": _escape_for_double_quotes(supabase_service_key),
         "__REPLICATE_API_TOKEN__": _escape_for_double_quotes(replicate_api_token),
         "__MAX_TASK_WAIT_MINUTES__": _escape_for_double_quotes(str(max_task_wait_minutes)),
+        "__WORKER_BACKEND__": _escape_for_double_quotes(worker_backend),
+        "__WORKER_PROFILE__": _escape_for_double_quotes(worker_profile),
+        "__WORKER_POOL__": _escape_for_double_quotes(worker_pool),
+        "__SELECTOR_NAMESPACE__": _escape_for_double_quotes(selector_namespace),
+        "__SELECTOR_VERSION__": _escape_for_double_quotes(selector_version or ""),
+        "__WORKER_CONTRACT_VERSION__": _escape_for_double_quotes(str(worker_contract_version)),
+        "__WORKER_RUN_ID__": _escape_for_double_quotes(worker_run_id or ""),
+        "__WARM_CACHE_PRELOAD_MODEL__": _escape_for_double_quotes(warm_cache["preload_model"]),
+        "__WARM_CACHE_SOURCE__": _escape_for_double_quotes(warm_cache["source"]),
+        "__WARM_CACHE_SKIP_REASON__": _escape_for_double_quotes(warm_cache["skip_reason"]),
         "__PRELOAD_FLAG__": _escape_for_double_quotes(preload_flag),
         "__PRELOAD_MODE__": _escape_for_double_quotes(preload_mode),
     }
@@ -63,6 +90,65 @@ def render_startup_script(
         script = script.replace(placeholder, value)
 
     return script
+
+
+def _resolve_startup_warm_cache(
+    *,
+    has_pending_tasks: bool,
+    worker_backend: str,
+    worker_profile: str,
+) -> dict[str, str]:
+    if has_pending_tasks:
+        return {
+            "preload_model": "",
+            "source": "pending_task_guard",
+            "skip_reason": "pending_tasks",
+            "mode": "NO (tasks pending)",
+        }
+    direct_env = os.environ.get("REIGH_WARM_CACHE_PRELOAD_MODEL", "").strip()
+    if direct_env:
+        return {"preload_model": direct_env, "source": "env", "skip_reason": "", "mode": "YES (env)"}
+
+    manifest_model = _warm_cache_manifest_model(worker_backend=worker_backend, worker_profile=worker_profile)
+    if manifest_model:
+        return {"preload_model": manifest_model, "source": "manifest", "skip_reason": "", "mode": "YES (manifest)"}
+
+    default_model = DEFAULT_WARM_CACHE_MODEL_BY_ROUTE.get((worker_backend.lower(), str(worker_profile)), "")
+    if default_model:
+        return {"preload_model": default_model, "source": "default", "skip_reason": "", "mode": "YES (default)"}
+    return {"preload_model": "", "source": "default", "skip_reason": "no_matching_model", "mode": "NO (no matching warm-cache model)"}
+
+
+def _warm_cache_manifest_model(*, worker_backend: str, worker_profile: str) -> str:
+    inline = os.environ.get("REIGH_WARM_CACHE_CONFIG", "").strip()
+    data = None
+    if inline:
+        try:
+            data = json.loads(inline)
+        except json.JSONDecodeError:
+            data = None
+    manifest_path = os.environ.get("REIGH_WARM_CACHE_MANIFEST", "").strip()
+    if data is None and manifest_path:
+        try:
+            data = json.loads(Path(manifest_path).read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            data = None
+    if not isinstance(data, dict):
+        return ""
+    routes = data.get("routes")
+    if isinstance(routes, list):
+        for route in routes:
+            if not isinstance(route, dict):
+                continue
+            if str(route.get("backend", "")).lower() != worker_backend.lower():
+                continue
+            if str(route.get("profile", "")) != str(worker_profile):
+                continue
+            return str(route.get("preload_model") or "").strip()
+    by_backend = data.get(worker_backend)
+    if isinstance(by_backend, dict):
+        return str(by_backend.get(str(worker_profile)) or by_backend.get("default") or "").strip()
+    return ""
 
 
 def build_create_script_command(script_path: str, script_content: str) -> str:

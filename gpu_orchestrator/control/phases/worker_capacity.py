@@ -28,6 +28,7 @@ class WorkerCapacityPhaseMixin:
     ) -> None:
         """Spawn or terminate workers based on scaling decision."""
         config = self.config
+        await self._handle_stale_route_workers(worker_states, summary)
 
         if decision.should_scale_down:
             if decision.current_capacity > decision.desired_workers:
@@ -35,7 +36,10 @@ class WorkerCapacityPhaseMixin:
             else:
                 dynamic_timeout = config.gpu_idle_timeout_sec
 
-            active_states = [ws for ws in worker_states if ws.is_active and not ws.has_active_task]
+            active_states = [
+                ws for ws in worker_states
+                if ws.is_active and not ws.has_active_task and not ws.is_route_stale
+            ]
             terminatable = []
 
             for ws in active_states:
@@ -190,7 +194,7 @@ class WorkerCapacityPhaseMixin:
             if not await self.db.create_worker_record(worker_id, self.runpod.gpu_type):
                 return False
 
-            result = self.runpod.spawn_worker(worker_id)
+            result = await self.runpod.spawn_worker(worker_id)
 
             if result and result.get("runpod_id"):
                 pod_id = result["runpod_id"]
@@ -203,7 +207,7 @@ class WorkerCapacityPhaseMixin:
                 else:
                     final_status = "spawning"
 
-                metadata = {"runpod_id": pod_id}
+                metadata = {"runpod_id": pod_id, **_selected_route_metadata(self)}
                 if status == "error":
                     metadata["termination_reason"] = "spawn_failed"
                     metadata["terminated_at"] = datetime.now(timezone.utc).isoformat()
@@ -223,7 +227,7 @@ class WorkerCapacityPhaseMixin:
                         f"but RunPod pod {pod_id} was created!"
                     )
                     try:
-                        self.runpod.terminate_worker(pod_id)
+                        await self.runpod.terminate_worker(pod_id)
                     except Exception as exc:
                         logger.error(
                             f"MANUAL INTERVENTION REQUIRED: Orphaned pod {pod_id} ({exc})"
@@ -231,7 +235,7 @@ class WorkerCapacityPhaseMixin:
                     return False
 
                 if final_status == "active" and self.config.auto_start_worker_process:
-                    self.runpod.start_worker_process(
+                    await self.runpod.start_worker_process(
                         pod_id,
                         worker_id,
                         has_pending_tasks=(queued_count > 0),
@@ -266,7 +270,7 @@ class WorkerCapacityPhaseMixin:
 
         try:
             if runpod_id:
-                success = self.runpod.terminate_worker(runpod_id)
+                success = await self.runpod.terminate_worker(runpod_id)
                 if not success:
                     logger.error(f"WORKER_LIFECYCLE [Worker {worker_id}] RunPod termination FAILED")
                     return False
@@ -285,6 +289,34 @@ class WorkerCapacityPhaseMixin:
         except Exception as exc:
             logger.error(f"WORKER_LIFECYCLE [Worker {worker_id}] TERMINATION FAILED: {exc}")
             return False
+
+    async def _handle_stale_route_workers(
+        self: "ControlHost",
+        worker_states: List[DerivedWorkerState],
+        summary: CycleSummary,
+    ) -> None:
+        """Drain active route-stale workers and terminate idle route-stale workers."""
+        for ws in worker_states:
+            if not ws.is_route_stale or ws.is_terminal:
+                continue
+            if ws.has_active_task:
+                logger.info(
+                    "Draining route-stale worker %s with active task; no new-route capacity credit",
+                    ws.worker_id,
+                )
+                continue
+
+            worker = await self.db.get_worker_by_id(ws.worker_id)
+            if not worker:
+                logger.warning("Route-stale worker %s disappeared before termination", ws.worker_id)
+                continue
+
+            reason = ws.termination_reason or "STALE_ROUTE_CONTRACT"
+            if not reason.startswith("STALE_ROUTE_CONTRACT"):
+                reason = f"STALE_ROUTE_CONTRACT: {reason}"
+            if await self._terminate_worker(worker, reason=reason):
+                summary.workers_terminated += 1
+                logger.info("Terminated idle route-stale worker %s", ws.worker_id)
 
     async def _check_worker_failure_rate(self: "ControlHost") -> bool:
         """Check if the worker failure rate is too high."""
@@ -336,3 +368,10 @@ class WorkerCapacityPhaseMixin:
 
 
 __all__ = ["WorkerCapacityPhaseMixin"]
+
+
+def _selected_route_metadata(host: "ControlHost") -> dict[str, Any]:
+    metadata_fn = getattr(host.runpod, "selected_route_metadata", None)
+    if callable(metadata_fn):
+        return metadata_fn()
+    return {}

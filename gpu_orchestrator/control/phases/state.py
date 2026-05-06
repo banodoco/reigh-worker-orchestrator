@@ -31,7 +31,8 @@ class StatePhaseMixin:
         detailed_counts = await self.db.get_detailed_task_counts_via_edge_function()
 
         if detailed_counts:
-            totals = detailed_counts.get("totals", {})
+            aggregate_totals = detailed_counts.get("totals", {})
+            totals = detailed_counts.get("selected_pool_totals") or aggregate_totals
             active_cloud_count = totals.get("active_only", 0)
 
             potentially_claimable = totals.get("potentially_claimable")
@@ -44,13 +45,15 @@ class StatePhaseMixin:
                 blocked_capacity = totals.get("blocked_by_capacity", 0)
                 blocked_deps = totals.get("blocked_by_deps", 0)
                 blocked_settings = totals.get("blocked_by_settings", 0)
+                route_keys = totals.get("route_keys")
 
                 logger.debug(
                     f"TASK COUNT (Cycle #{self.cycle_count}): "
                     f"Scaling={potentially_claimable} "
                     f"(queued_only={queued_only} + capacity_blocked={blocked_capacity}), "
                     f"Active={active_cloud_count}, "
-                    f"[NOT scaling for: deps_blocked={blocked_deps}, settings_blocked={blocked_settings}]"
+                    f"[NOT scaling for: deps_blocked={blocked_deps}, settings_blocked={blocked_settings}], "
+                    f"route_keys={route_keys}"
                 )
             else:
                 queued_count = totals.get("queued_only", 0)

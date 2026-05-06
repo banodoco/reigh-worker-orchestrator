@@ -17,6 +17,124 @@ logger = logging.getLogger(__name__)
 # Worker IDs are ~40 chars; 10 keeps the query well under the limit.
 _IN_CHUNK_SIZE = 10
 
+
+def _env_str(*names: str, default: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value and value.strip():
+            return value.strip()
+    return default
+
+
+def _env_optional_str(*names: str) -> Optional[str]:
+    for name in names:
+        value = os.getenv(name)
+        if value and value.strip():
+            return value.strip()
+    return None
+
+
+def _env_int(name: str, default: int) -> int:
+    try:
+        return int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        return default
+
+
+def _profiles_compatible(worker_profile: str, route_profile: Any) -> bool:
+    profile = str(route_profile or "")
+    return profile == worker_profile or {profile, worker_profile} == {"default", "1"}
+
+
+def selected_pool_route_filter() -> Dict[str, Any]:
+    worker_backend = _env_str("REIGH_BACKEND", "WORKER_BACKEND", default="wgp").lower()
+    selector_namespace = _env_str("REIGH_SELECTOR_NAMESPACE", "ROUTE_SELECTOR_NAMESPACE", default="production")
+    worker_pool = _env_str(
+        "REIGH_WORKER_POOL",
+        "WORKER_POOL",
+        default=f"gpu-{worker_backend}-{selector_namespace}",
+    )
+    return {
+        "worker_backend": worker_backend,
+        "worker_profile": _env_str("REIGH_WORKER_PROFILE", "WGP_PROFILE", default="1"),
+        "worker_pool": worker_pool,
+        "selector_namespace": selector_namespace,
+        "selector_version": _env_optional_str("REIGH_SELECTOR_VERSION", "ROUTE_SELECTOR_VERSION"),
+        "worker_contract_version": _env_int("REIGH_WORKER_CONTRACT_VERSION", 1),
+        "worker_run_id": _env_optional_str("REIGH_WORKER_RUN_ID", "WORKER_RUN_ID", "ROUTE_RUN_ID"),
+    }
+
+
+def selected_pool_route_metadata(route_filter: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    route = route_filter or selected_pool_route_filter()
+    contract = {
+        "selected_backend": route["worker_backend"],
+        "selected_profile": route["worker_profile"],
+        "worker_backend": route["worker_backend"],
+        "worker_profile": route["worker_profile"],
+        "worker_pool": route["worker_pool"],
+        "selector_namespace": route["selector_namespace"],
+        "selector_version": route.get("selector_version"),
+        "worker_contract_version": route["worker_contract_version"],
+        "route_run_id": route.get("worker_run_id"),
+    }
+    return {
+        "worker_backend": route["worker_backend"],
+        "worker_profile": route["worker_profile"],
+        "worker_pool": route["worker_pool"],
+        "selector_namespace": route["selector_namespace"],
+        "selector_version": route.get("selector_version"),
+        "worker_contract_version": route["worker_contract_version"],
+        "worker_run_id": route.get("worker_run_id"),
+        "route_contract": contract,
+    }
+
+
+def apply_selected_pool_totals(data: Dict[str, Any]) -> Dict[str, Any]:
+    route_totals = data.get("route_totals")
+    if not isinstance(route_totals, list):
+        return data
+
+    route_filter = selected_pool_route_filter()
+    selected = {
+        "queued_only": 0,
+        "active_only": 0,
+        "queued_plus_active": 0,
+        "blocked_by_capacity": 0,
+        "blocked_by_deps": 0,
+        "blocked_by_settings": 0,
+        "potentially_claimable": 0,
+        "route_keys": [],
+        "route_filter": route_filter,
+        "aggregate_fallback": False,
+    }
+
+    for route in route_totals:
+        if not isinstance(route, dict):
+            continue
+        if route.get("selected_backend") != route_filter["worker_backend"]:
+            continue
+        if route.get("selector_namespace") != route_filter["selector_namespace"]:
+            continue
+        if str(route.get("selector_version") or "") != str(route_filter.get("selector_version") or ""):
+            continue
+        if int(route.get("worker_contract_version") or 0) != int(route_filter["worker_contract_version"]):
+            continue
+        if not _profiles_compatible(route_filter["worker_profile"], route.get("selected_profile")):
+            continue
+
+        selected["queued_only"] += int(route.get("queued_only") or 0)
+        selected["active_only"] += int(route.get("active_only") or 0)
+        selected["blocked_by_capacity"] += int(route.get("blocked_by_capacity") or 0)
+        selected["potentially_claimable"] += int(route.get("potentially_claimable") or route.get("queued_only") or 0)
+        route_key = route.get("route_key")
+        if route_key and route_key not in selected["route_keys"]:
+            selected["route_keys"].append(route_key)
+
+    selected["queued_plus_active"] = selected["queued_only"] + selected["active_only"]
+    data["selected_pool_totals"] = selected
+    return data
+
 class DatabaseClient:
     """Database client for orchestrator operations."""
     
@@ -61,7 +179,8 @@ class DatabaseClient:
             
             payload = {
                 "run_type": "gpu",
-                "include_active": include_active
+                "include_active": include_active,
+                **selected_pool_route_filter(),
             }
             
             timeout = aiohttp.ClientTimeout(total=30)
@@ -71,7 +190,9 @@ class DatabaseClient:
                         data = await response.json()
                         # Extract count from new endpoint format
                         if "totals" in data:
-                            task_count = data["totals"].get("queued_plus_active" if include_active else "queued_only", 0)
+                            data = apply_selected_pool_totals(data)
+                            totals = data.get("selected_pool_totals") or data["totals"]
+                            task_count = totals.get("queued_plus_active" if include_active else "queued_only", 0)
                         else:
                             task_count = data.get("available_tasks", 0)
                         logger.debug(f"Task counts endpoint returned {task_count} available tasks (include_active={include_active})")
@@ -108,7 +229,8 @@ class DatabaseClient:
             }
             
             payload = {
-                "run_type": "gpu"
+                "run_type": "gpu",
+                **selected_pool_route_filter(),
             }
             
             timeout = aiohttp.ClientTimeout(total=30)
@@ -116,6 +238,7 @@ class DatabaseClient:
                 async with session.post(task_counts_url, headers=headers, json=payload) as response:
                     if response.status == 200:
                         data = await response.json()
+                        data = apply_selected_pool_totals(data)
                         logger.info(f"✅ Task counts endpoint returned detailed breakdown: {data.get('totals', {})}")
                         
                         # Log response for debugging
@@ -233,7 +356,10 @@ class DatabaseClient:
     async def create_worker_record(self, worker_id: str, instance_type: str, runpod_id: str = None) -> bool:
         """Create a new worker record (optimistic registration)."""
         try:
-            metadata = {'orchestrator_status': 'spawning'}
+            metadata = {
+                'orchestrator_status': 'spawning',
+                **selected_pool_route_metadata(),
+            }
             if runpod_id:
                 metadata['runpod_id'] = runpod_id
             

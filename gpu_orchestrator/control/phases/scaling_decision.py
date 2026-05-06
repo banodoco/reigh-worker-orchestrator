@@ -49,8 +49,14 @@ class ScalingDecisionPhaseMixin:
         """Legacy scaling logic (before double-spawn fix)."""
         config = self.config
 
-        active_states = [ws for ws in worker_states if ws.is_active and not ws.should_terminate]
-        spawning_states = [ws for ws in worker_states if ws.is_spawning]
+        active_states = [
+            ws for ws in worker_states
+            if ws.is_active and not ws.should_terminate and not ws.is_route_stale
+        ]
+        spawning_states = [
+            ws for ws in worker_states
+            if ws.is_spawning and not ws.should_terminate and not ws.is_route_stale
+        ]
 
         active_count = len(active_states)
         spawning_count = len(spawning_states)

@@ -330,8 +330,11 @@ class OrchestratorControlLoop:
         now = datetime.now(timezone.utc)
         config = self.config
 
-        spawning_states = [ws for ws in worker_states if ws.is_spawning]
-        active_states = [ws for ws in worker_states if ws.is_active and not ws.is_terminal]
+        spawning_states = [ws for ws in worker_states if ws.is_spawning and not ws.is_route_stale]
+        active_states = [
+            ws for ws in worker_states
+            if ws.is_active and not ws.is_terminal and not ws.is_route_stale
+        ]
 
         current_capacity = len(active_states) + len(spawning_states)
 
@@ -469,7 +472,8 @@ class OrchestratorControlLoop:
                             metadata_update = {
                                 'ssh_details': status_update.get('ssh_details'),
                                 'startup_script_launched': True,
-                                'startup_script_launched_at': datetime.now(timezone.utc).isoformat()
+                                'startup_script_launched_at': datetime.now(timezone.utc).isoformat(),
+                                **self._selected_route_metadata(),
                             }
                             await self.db.update_worker_status(worker_id, 'spawning', metadata_update)
                             summary.startup_scripts_launched += 1
@@ -923,6 +927,7 @@ class OrchestratorControlLoop:
     ) -> None:
         """Spawn or terminate workers based on scaling decision."""
         config = self.config
+        await self._handle_stale_route_workers(worker_states, summary)
 
         # Scale down: terminate idle workers
         if decision.should_scale_down:
@@ -933,7 +938,10 @@ class OrchestratorControlLoop:
                 dynamic_timeout = config.gpu_idle_timeout_sec
 
             # Find terminatable workers
-            active_states = [ws for ws in worker_states if ws.is_active and not ws.has_active_task]
+            active_states = [
+                ws for ws in worker_states
+                if ws.is_active and not ws.has_active_task and not ws.is_route_stale
+            ]
             terminatable = []
 
             for ws in active_states:
@@ -1008,6 +1016,40 @@ class OrchestratorControlLoop:
                     logger.info(f"Worker {i + 1}/{decision.workers_to_spawn} spawned successfully")
                 else:
                     logger.error(f"Failed to spawn worker {i + 1}/{decision.workers_to_spawn}")
+
+    async def _handle_stale_route_workers(
+        self,
+        worker_states: List[DerivedWorkerState],
+        summary: CycleSummary,
+    ) -> None:
+        """Drain active route-stale workers and terminate idle route-stale workers."""
+        for ws in worker_states:
+            if not ws.is_route_stale or ws.is_terminal:
+                continue
+            if ws.has_active_task:
+                logger.info(
+                    "Draining route-stale worker %s with active task; no new-route capacity credit",
+                    ws.worker_id,
+                )
+                continue
+
+            worker = await self.db.get_worker_by_id(ws.worker_id)
+            if not worker:
+                logger.warning("Route-stale worker %s disappeared before termination", ws.worker_id)
+                continue
+
+            reason = ws.termination_reason or "STALE_ROUTE_CONTRACT"
+            if not reason.startswith("STALE_ROUTE_CONTRACT"):
+                reason = f"STALE_ROUTE_CONTRACT: {reason}"
+            if await self._terminate_worker(worker, reason=reason):
+                summary.workers_terminated += 1
+                logger.info("Terminated idle route-stale worker %s", ws.worker_id)
+
+    def _selected_route_metadata(self) -> Dict[str, Any]:
+        metadata_fn = getattr(self.runpod, "selected_route_metadata", None)
+        if callable(metadata_fn):
+            return metadata_fn()
+        return {}
 
     # =========================================================================
     # PHASE 10: Periodic checks
@@ -1319,6 +1361,7 @@ class OrchestratorControlLoop:
                     final_status = 'spawning'
 
                 metadata = {'runpod_id': pod_id}
+                metadata.update(self._selected_route_metadata())
                 if status == 'error':
                     metadata['termination_reason'] = 'spawn_failed'
                     metadata['terminated_at'] = datetime.now(timezone.utc).isoformat()

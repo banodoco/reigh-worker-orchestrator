@@ -12,6 +12,34 @@ import logging
 logger = logging.getLogger(__name__)
 
 
+VALID_WORKER_BACKENDS = {"wgp", "vibecomfy"}
+
+
+def _env_str(*names: str, default: str) -> str:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip():
+            return value.strip()
+    return default
+
+
+def _env_optional_str(*names: str) -> str | None:
+    for name in names:
+        value = os.getenv(name)
+        if value is not None and value.strip():
+            return value.strip()
+    return None
+
+
+def _env_backend(*names: str, default: str = "wgp") -> str:
+    value = _env_str(*names, default=default).lower()
+    if value not in VALID_WORKER_BACKENDS:
+        raise ValueError(
+            f"Unsupported worker backend {value!r}; expected one of {sorted(VALID_WORKER_BACKENDS)}"
+        )
+    return value
+
+
 @dataclass
 class OrchestratorConfig:
     """All orchestrator configuration in one place."""
@@ -58,6 +86,15 @@ class OrchestratorConfig:
     storage_max_percent_used: int
     storage_expansion_increment_gb: int
 
+    # Selected route / pool contract defaults
+    worker_backend: str
+    worker_profile: str
+    worker_pool: str
+    selector_namespace: str
+    selector_version: str | None
+    worker_contract_version: int
+    worker_run_id: str | None
+
     # Error cleanup
     error_cleanup_grace_period_sec: int
 
@@ -90,6 +127,15 @@ class OrchestratorConfig:
                 f"clamping to {max_active}"
             )
             machines_idle = max_active
+
+        worker_backend = _env_backend("REIGH_BACKEND", "WORKER_BACKEND", default="wgp")
+        worker_profile = _env_str("REIGH_WORKER_PROFILE", "WGP_PROFILE", default="1")
+        selector_namespace = _env_str("REIGH_SELECTOR_NAMESPACE", "ROUTE_SELECTOR_NAMESPACE", default="production")
+        worker_pool = _env_str(
+            "REIGH_WORKER_POOL",
+            "WORKER_POOL",
+            default=f"gpu-{worker_backend}-{selector_namespace}",
+        )
 
         return cls(
             # Scaling limits
@@ -137,6 +183,15 @@ class OrchestratorConfig:
             storage_max_percent_used=int(os.getenv("STORAGE_MAX_PERCENT_USED", "85")),
             storage_expansion_increment_gb=int(os.getenv("STORAGE_EXPANSION_INCREMENT_GB", "50")),
 
+            # Selected route / pool contract
+            worker_backend=worker_backend,
+            worker_profile=worker_profile,
+            worker_pool=worker_pool,
+            selector_namespace=selector_namespace,
+            selector_version=_env_optional_str("REIGH_SELECTOR_VERSION", "ROUTE_SELECTOR_VERSION"),
+            worker_contract_version=int(os.getenv("REIGH_WORKER_CONTRACT_VERSION", "1")),
+            worker_run_id=_env_optional_str("REIGH_WORKER_RUN_ID", "WORKER_RUN_ID"),
+
             # Error cleanup
             error_cleanup_grace_period_sec=int(os.getenv("ERROR_CLEANUP_GRACE_PERIOD_SEC", "600")),
 
@@ -163,6 +218,7 @@ class OrchestratorConfig:
         logger.info(f"   Failure protection: max_rate={self.max_worker_failure_rate:.0%}, window={self.failure_window_minutes}m, min_workers={self.min_workers_for_rate_check}")
         logger.info(f"   Task failure detection: max_consecutive={self.max_consecutive_task_failures}, window={self.task_failure_window_minutes}m")
         logger.info(f"   Storage: check_interval={self.storage_check_interval_cycles} cycles, min_free={self.storage_min_free_gb}GB, max_used={self.storage_max_percent_used}%")
+        logger.info(f"   Route contract: backend={self.worker_backend}, profile={self.worker_profile}, pool={self.worker_pool}, selector={self.selector_namespace}/{self.selector_version or 'default'}, contract={self.worker_contract_version}, run_id={self.worker_run_id or 'unset'}")
         logger.info(f"   Polling: {self.orchestrator_poll_sec}s")
         logger.info(f"   Auto-start worker: {self.auto_start_worker_process}")
         logger.info(f"   Feature flags: use_new_scaling_logic={self.use_new_scaling_logic}")
