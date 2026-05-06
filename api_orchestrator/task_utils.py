@@ -11,6 +11,8 @@ from typing import Any, Dict, Optional
 import httpx
 from supabase import create_client
 
+from .shadow_side_effects import is_shadow_mode, record_shadow_side_effect
+
 logger = logging.getLogger(__name__)
 _MISSING_ENV_LOGGED_ATTR = "_task_utils_missing_env_logged"
 
@@ -239,6 +241,17 @@ async def mark_complete_via_edge_function(client: httpx.AsyncClient, task_id: st
 
         logger.info(f"Attempting to mark task {task_id} complete via {edge_url}")
         logger.debug(f"Payload: {payload}")
+
+        if is_shadow_mode():
+            record_shadow_side_effect(
+                effect="completion",
+                operation="update-task-status-url-complete" if output_location else "complete_task-no-output",
+                task_id=task_id,
+                endpoint=edge_url,
+                payload=payload,
+                metadata={"url_only_completion": bool(output_location)},
+            )
+            return True
 
         resp = await client.post(edge_url, json=payload, headers=headers, timeout=30)
 
