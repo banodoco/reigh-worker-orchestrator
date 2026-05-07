@@ -1,10 +1,14 @@
 from __future__ import annotations
 
-from scripts.dashboard import build_export_payload
+import scripts.dashboard as dashboard
+
+
+def test_dashboard_module_imports_without_database_client_annotation_error() -> None:
+    assert callable(dashboard.build_export_payload)
 
 
 def test_dashboard_export_includes_canary_panels_without_live_database() -> None:
-    payload = build_export_payload(
+    payload = dashboard.build_export_payload(
         {
             "status": {
                 "queued_tasks": 2,
@@ -85,7 +89,7 @@ def test_dashboard_export_includes_canary_panels_without_live_database() -> None
 
 
 def test_dashboard_export_accepts_dict_non_rayworker_evidence() -> None:
-    payload = build_export_payload(
+    payload = dashboard.build_export_payload(
         {"status": {}, "worker_health": [], "tasks": []},
         imported_live_evidence={
             "routes": {
@@ -99,4 +103,3 @@ def test_dashboard_export_accepts_dict_non_rayworker_evidence() -> None:
     )
 
     assert payload["canary_panels"]["non_rayworker_route_health"]["image-upscale"]["status"] == "green"
-

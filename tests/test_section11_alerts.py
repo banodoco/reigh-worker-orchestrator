@@ -91,3 +91,44 @@ def test_section11_canary_alerts_have_machine_readable_runbook_refs() -> None:
         assert rule["labels"]["source"]
 
     assert len(names) == len(config["rules"])
+
+
+def test_section11_canary_watch_notes_match_sprint12_status_and_handlers() -> None:
+    config = _load_alert_config()
+    watch_notes = config["watch_notes"]
+
+    assert watch_notes["dashboard_import_prerequisite"]["status"] == "RESOLVED"
+    assert "DatabaseClient" not in watch_notes["dashboard_import_prerequisite"]["reason"]
+    assert watch_notes["shadow_isolation"]["status"] == "RED"
+    assert watch_notes["non_rayworker_routes"]["status"] == "RED"
+
+    routes = {
+        route["route_key"]: route
+        for route in watch_notes["non_rayworker_routes"]["routes"]
+    }
+    assert routes == {
+        "video_enhance": {
+            "route_key": "video_enhance",
+            "runtime": "api_orchestrator",
+            "handler_ref": "handlers/fal.py::handle_video_enhance",
+            "smoke_state": "RED",
+        },
+        "image-upscale": {
+            "route_key": "image-upscale",
+            "runtime": "api_orchestrator",
+            "handler_ref": "handlers/fal.py::handle_image_upscale",
+            "smoke_state": "RED",
+        },
+        "animate_character": {
+            "route_key": "animate_character",
+            "runtime": "api_orchestrator",
+            "handler_ref": "handlers/wavespeed.py::handle_animate_character",
+            "smoke_state": "RED",
+        },
+        "flux_klein_edit": {
+            "route_key": "flux_klein_edit",
+            "runtime": "api_orchestrator",
+            "handler_ref": "handlers/fal.py::handle_flux_klein_edit",
+            "smoke_state": "RED",
+        },
+    }

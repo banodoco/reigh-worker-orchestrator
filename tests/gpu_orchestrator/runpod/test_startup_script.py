@@ -108,6 +108,112 @@ def test_rendered_startup_script_exports_selected_pool_contract():
     assert 'export REIGH_WARM_CACHE_SKIP_REASON="pending_tasks"' in script
 
 
+def test_wgp_and_vibecomfy_render_from_same_startup_template_with_route_exports():
+    common_kwargs = {
+        "supabase_url": "https://example.supabase.co",
+        "supabase_anon_key": "anon",
+        "supabase_service_key": "service",
+        "replicate_api_token": "replicate",
+        "max_task_wait_minutes": 7,
+        "has_pending_tasks": True,
+        "selector_namespace": "canary",
+        "selector_version": "42",
+        "worker_contract_version": 2,
+        "worker_run_id": "run-shared",
+    }
+    wgp_script = startup_script.render_startup_script(
+        worker_id="gpu-worker-wgp",
+        worker_backend="wgp",
+        worker_profile="1",
+        worker_pool="gpu-wgp-canary",
+        **common_kwargs,
+    )
+    vibecomfy_script = startup_script.render_startup_script(
+        worker_id="gpu-worker-vibe",
+        worker_backend="vibecomfy",
+        worker_profile="3",
+        worker_pool="gpu-vibecomfy-canary",
+        **common_kwargs,
+    )
+
+    shared_template_markers = [
+        'PRIMARY_DIR="$WORKSPACE_DIR/Reigh-Worker"',
+        'git clone https://github.com/banodoco/Reigh-Worker.git "$PRIMARY_DIR"',
+        '"$UV_BIN" sync --locked --python 3.10 --extra cuda124',
+        '"$UV_BIN" run --python 3.10 --extra cuda124 python worker.py',
+        'record_initial_deps_installing_or_exit',
+        'wait_worker_preflight_ready_or_exit "$WORKER_PID"',
+    ]
+    for marker in shared_template_markers:
+        assert marker in wgp_script
+        assert marker in vibecomfy_script
+
+    assert 'export REIGH_BACKEND="wgp"' in wgp_script
+    assert 'export REIGH_BACKEND="vibecomfy"' in vibecomfy_script
+    assert 'export WORKER_BACKEND="$REIGH_BACKEND"' in wgp_script
+    assert 'export WORKER_BACKEND="$REIGH_BACKEND"' in vibecomfy_script
+    assert 'export REIGH_WORKER_PROFILE="1"' in wgp_script
+    assert 'export REIGH_WORKER_PROFILE="3"' in vibecomfy_script
+    assert 'export WGP_PROFILE="$REIGH_WORKER_PROFILE"' in wgp_script
+    assert 'export WGP_PROFILE="$REIGH_WORKER_PROFILE"' in vibecomfy_script
+    assert 'export REIGH_WORKER_POOL="gpu-wgp-canary"' in wgp_script
+    assert 'export REIGH_WORKER_POOL="gpu-vibecomfy-canary"' in vibecomfy_script
+    assert 'export REIGH_SELECTOR_NAMESPACE="canary"' in wgp_script
+    assert 'export REIGH_SELECTOR_NAMESPACE="canary"' in vibecomfy_script
+    assert 'export REIGH_SELECTOR_VERSION="42"' in wgp_script
+    assert 'export REIGH_SELECTOR_VERSION="42"' in vibecomfy_script
+    assert 'export REIGH_WORKER_CONTRACT_VERSION="2"' in wgp_script
+    assert 'export REIGH_WORKER_CONTRACT_VERSION="2"' in vibecomfy_script
+    assert 'export REIGH_WORKER_RUN_ID="run-shared"' in wgp_script
+    assert 'export REIGH_WORKER_RUN_ID="run-shared"' in vibecomfy_script
+
+
+def test_vibecomfy_memory_profile_exports_only_for_numeric_vibecomfy_profile():
+    common_kwargs = {
+        "supabase_url": "https://example.supabase.co",
+        "supabase_anon_key": "anon",
+        "supabase_service_key": "service",
+        "replicate_api_token": "replicate",
+        "max_task_wait_minutes": 7,
+        "has_pending_tasks": True,
+    }
+
+    wgp_numeric = startup_script.render_startup_script(
+        worker_id="gpu-worker-wgp",
+        worker_backend="wgp",
+        worker_profile="3",
+        **common_kwargs,
+    )
+    vibecomfy_named = startup_script.render_startup_script(
+        worker_id="gpu-worker-vibe-named",
+        worker_backend="vibecomfy",
+        worker_profile="canary",
+        **common_kwargs,
+    )
+    vibecomfy_numeric = startup_script.render_startup_script(
+        worker_id="gpu-worker-vibe-numeric",
+        worker_backend="vibecomfy",
+        worker_profile="3",
+        **common_kwargs,
+    )
+
+    guarded_export = (
+        'if [ "$REIGH_BACKEND" = "vibecomfy" ] && [[ "$REIGH_WORKER_PROFILE" =~ ^[0-9]+$ ]]; then\n'
+        '    export VIBECOMFY_MEMORY_PROFILE="$REIGH_WORKER_PROFILE"\n'
+        "fi"
+    )
+    for script in (wgp_numeric, vibecomfy_named, vibecomfy_numeric):
+        assert guarded_export in script
+        assert script.count('export VIBECOMFY_MEMORY_PROFILE="$REIGH_WORKER_PROFILE"') == 1
+
+    assert 'export REIGH_BACKEND="wgp"' in wgp_numeric
+    assert 'export REIGH_WORKER_PROFILE="3"' in wgp_numeric
+    assert 'export REIGH_BACKEND="vibecomfy"' in vibecomfy_named
+    assert 'export REIGH_WORKER_PROFILE="canary"' in vibecomfy_named
+    assert 'export REIGH_BACKEND="vibecomfy"' in vibecomfy_numeric
+    assert 'export REIGH_WORKER_PROFILE="3"' in vibecomfy_numeric
+
+
 def test_rendered_startup_script_logs_early_disk_diagnostics_before_package_work():
     script = startup_script.render_startup_script(
         worker_id="gpu-worker-1",

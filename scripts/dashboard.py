@@ -4,6 +4,8 @@ Simple dashboard for monitoring the Runpod GPU Worker Orchestrator.
 Displays real-time status, worker health, and system metrics.
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import asyncio

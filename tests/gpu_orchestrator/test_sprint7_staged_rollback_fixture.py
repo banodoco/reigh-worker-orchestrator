@@ -9,9 +9,20 @@ guards the end-to-end invariants that must hold together during rollout.
 from __future__ import annotations
 
 import asyncio
+import sys
 from datetime import datetime, timedelta, timezone
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from unittest.mock import AsyncMock
+
+aiohttp_stub = ModuleType("aiohttp")
+sys.modules.setdefault("aiohttp", aiohttp_stub)
+dotenv_stub = ModuleType("dotenv")
+dotenv_stub.load_dotenv = lambda *args, **kwargs: None
+sys.modules.setdefault("dotenv", dotenv_stub)
+supabase_stub = ModuleType("supabase")
+supabase_stub.Client = object
+supabase_stub.create_client = lambda *args, **kwargs: object()
+sys.modules.setdefault("supabase", supabase_stub)
 
 from gpu_orchestrator.control.phases.worker_capacity import WorkerCapacityPhaseMixin
 from gpu_orchestrator.database import apply_selected_pool_totals, selected_pool_route_filter

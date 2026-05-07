@@ -4,34 +4,34 @@ name: sprint11b-canary-readiness
 provider: provider-neutral
 watch_notes:
   dashboard_import_prerequisite:
-    status: NO_GO
-    reason: "scripts/dashboard.py import is blocked by NameError: name 'DatabaseClient' is not defined; dashboard validation remains paused until the Sprint 11A code prerequisite is fixed."
+    status: RESOLVED
+    reason: "Sprint 12 dashboard import prerequisite is repaired; scripts.dashboard imports directly and build_export_payload remains pure/testable without a live database client."
   shadow_isolation:
-    status: UNKNOWN
+    status: RED
     output_divergence_auto_rollback: disabled_sampled_offline_only
-    reason: Isolated shadow evidence with no completion, billing, upload, or user-visible side effects was not mechanically verified.
+    reason: Isolated shadow evidence with no completion, billing, upload, or user-visible side effects still lacks live mechanical verification; Sprint 12 keeps readiness red instead of blocking execution.
   non_rayworker_routes:
-    status: UNKNOWN
+    status: RED
     source: canary_readiness.non_rayworker
     source_ref: reigh-worker/scripts/canary_readiness/non_rayworker.py
-    reason: No recent live or staging observation manifest was mechanically verified; fixtures prove registry coverage only.
+    reason: No recent live or staging observation manifest was mechanically verified; fixtures prove registry coverage only, so Sprint 12 readiness remains red until real observations are attached.
     routes:
       - route_key: video_enhance
         runtime: api_orchestrator
-        handler_ref: handlers/fal.py
-        smoke_state: UNKNOWN
+        handler_ref: handlers/fal.py::handle_video_enhance
+        smoke_state: RED
       - route_key: image-upscale
         runtime: api_orchestrator
-        handler_ref: handlers/wavespeed.py
-        smoke_state: UNKNOWN
+        handler_ref: handlers/fal.py::handle_image_upscale
+        smoke_state: RED
       - route_key: animate_character
         runtime: api_orchestrator
-        handler_ref: handlers/fal.py
-        smoke_state: UNKNOWN
+        handler_ref: handlers/wavespeed.py::handle_animate_character
+        smoke_state: RED
       - route_key: flux_klein_edit
         runtime: api_orchestrator
-        handler_ref: handlers/fal.py
-        smoke_state: UNKNOWN
+        handler_ref: handlers/fal.py::handle_flux_klein_edit
+        smoke_state: RED
 rules:
   - name: canary_latency_p95_ratio_high
     severity: warning
