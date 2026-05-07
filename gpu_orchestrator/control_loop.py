@@ -28,6 +28,7 @@ from .worker_state import (
 )
 from .database import DatabaseClient
 from .health_monitor import OrchestratorHealthMonitor
+from .live_test_workers import filter_live_test_workers, is_live_test_worker
 from .logging_config import set_current_worker
 from .worker_spawner import create_worker_spawner
 
@@ -167,7 +168,14 @@ class OrchestratorControlLoop:
         # Only fetch non-terminated workers. Terminated workers don't need
         # lifecycle checks, and including them bloats .in_() batch queries
         # past PostgREST URL limits, causing silent 400 errors.
-        workers = await self.db.get_workers(status=["spawning", "active", "error"])
+        fetched_workers = await self.db.get_workers(status=["spawning", "active", "error"])
+        workers = filter_live_test_workers(fetched_workers)
+        ignored_live_workers = len(fetched_workers) - len(workers)
+        if ignored_live_workers:
+            logger.info(
+                "Ignoring %s live-test worker(s) for production capacity control",
+                ignored_live_workers,
+            )
 
         # Get detailed task counts from edge function
         detailed_counts = await self.db.get_detailed_task_counts_via_edge_function()
@@ -1708,6 +1716,8 @@ class OrchestratorControlLoop:
             runpod_pod_names = {pod.get('name') for pod in gpu_worker_pods}
 
             for worker in db_workers:
+                if is_live_test_worker(worker):
+                    continue
                 if worker['status'] in ['active', 'spawning']:
                     runpod_id = worker.get('metadata', {}).get('runpod_id')
                     worker_id = worker['id']

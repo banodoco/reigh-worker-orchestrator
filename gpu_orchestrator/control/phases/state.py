@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from gpu_orchestrator.live_test_workers import filter_live_test_workers
 from gpu_orchestrator.worker_state import DerivedWorkerState, TaskCounts, derive_worker_state
 
 logger = logging.getLogger(__name__)
@@ -26,7 +27,14 @@ class StatePhaseMixin:
         # Terminated workers don't need lifecycle checks, and including them
         # bloats the .in_() queries in batch_check_ever_claimed / batch_check_active_tasks
         # past PostgREST's URL length limit, causing 400 errors.
-        workers = await self.db.get_workers(status=["spawning", "active", "error"])
+        fetched_workers = await self.db.get_workers(status=["spawning", "active", "error"])
+        workers = filter_live_test_workers(fetched_workers)
+        ignored_live_workers = len(fetched_workers) - len(workers)
+        if ignored_live_workers:
+            logger.info(
+                "Ignoring %s live-test worker(s) for production capacity control",
+                ignored_live_workers,
+            )
 
         detailed_counts = await self.db.get_detailed_task_counts_via_edge_function()
 

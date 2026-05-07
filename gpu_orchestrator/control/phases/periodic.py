@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, List
 
 import runpod
 from gpu_orchestrator.control.diagnostics import WorkerDiagnosticsMixin
+from gpu_orchestrator.live_test_workers import is_live_test_worker
 from gpu_orchestrator.worker_state import CycleSummary, DerivedWorkerState
 
 logger = logging.getLogger(__name__)
@@ -275,6 +276,8 @@ class PeriodicChecksMixin:
             runpod_pod_names = {pod.get("name") for pod in gpu_worker_pods}
 
             for worker in db_workers:
+                if is_live_test_worker(worker):
+                    continue
                 if worker["status"] in ["active", "spawning"]:
                     runpod_id = worker.get("metadata", {}).get("runpod_id")
                     worker_id = worker["id"]
