@@ -1,7 +1,37 @@
 schema_version: 1
 section: 11
-name: sprint10-canary-readiness
+name: sprint11b-canary-readiness
 provider: provider-neutral
+watch_notes:
+  dashboard_import_prerequisite:
+    status: NO_GO
+    reason: "scripts/dashboard.py import is blocked by NameError: name 'DatabaseClient' is not defined; dashboard validation remains paused until the Sprint 11A code prerequisite is fixed."
+  shadow_isolation:
+    status: UNKNOWN
+    output_divergence_auto_rollback: disabled_sampled_offline_only
+    reason: Isolated shadow evidence with no completion, billing, upload, or user-visible side effects was not mechanically verified.
+  non_rayworker_routes:
+    status: UNKNOWN
+    source: canary_readiness.non_rayworker
+    source_ref: reigh-worker/scripts/canary_readiness/non_rayworker.py
+    reason: No recent live or staging observation manifest was mechanically verified; fixtures prove registry coverage only.
+    routes:
+      - route_key: video_enhance
+        runtime: api_orchestrator
+        handler_ref: handlers/fal.py
+        smoke_state: UNKNOWN
+      - route_key: image-upscale
+        runtime: api_orchestrator
+        handler_ref: handlers/wavespeed.py
+        smoke_state: UNKNOWN
+      - route_key: animate_character
+        runtime: api_orchestrator
+        handler_ref: handlers/fal.py
+        smoke_state: UNKNOWN
+      - route_key: flux_klein_edit
+        runtime: api_orchestrator
+        handler_ref: handlers/fal.py
+        smoke_state: UNKNOWN
 rules:
   - name: canary_latency_p95_ratio_high
     severity: warning
@@ -38,7 +68,7 @@ rules:
     metric_key: canary_output_divergence
     expression: canary_output_divergence > 0
     for: 0m
-    runbook: tasks/canary-rollback-worker.md#output-divergence
+    runbook: tasks/canary-rollback-orchestrator.md#output-divergence
     summary: Canary output comparison diverged from the accepted route threshold.
     labels:
       gate: parity
@@ -103,3 +133,4 @@ rules:
     labels:
       gate: non_rayworker_smoke
       source: canary_readiness.non_rayworker
+      watch_routes: video_enhance,image-upscale,animate_character,flux_klein_edit

@@ -1,0 +1,172 @@
+{
+  "success": false,
+  "export_timestamp": "2026-05-07T00:00:00Z",
+  "status": {
+    "sprint": "11B",
+    "readiness": "PAUSED",
+    "dashboard_import_prerequisite": {
+      "status": "NO_GO",
+      "source": "reigh-worker-orchestrator/scripts/dashboard.py",
+      "error": "NameError: name 'DatabaseClient' is not defined",
+      "paused_reason": "Sprint 11B dashboard validation cannot execute until the Sprint 11A DatabaseClient annotation import prerequisite is fixed."
+    },
+    "active_live_cohort": "UNKNOWN",
+    "selector_namespace": "UNKNOWN",
+    "selector_version": "UNKNOWN",
+    "hold_windows": {
+      "cohort_a": "UNKNOWN",
+      "cohort_b": "UNKNOWN",
+      "cohort_e": "UNKNOWN"
+    },
+    "shadow_isolation": {
+      "status": "UNKNOWN",
+      "output_divergence_auto_rollback": "NO_GO",
+      "reason": "No isolated shadow evidence was mechanically verified for no completion, billing, upload, or user-visible side effects."
+    }
+  },
+  "worker_health": [],
+  "recent_metrics": {},
+  "source_refs": {
+    "thresholds": "reigh-worker/scripts/dual_run_compare/migration-thresholds.yaml#version-0B-2026-05-05",
+    "wgp_deferral_report": "reigh-worker/scripts/dual_run_compare/reports/wgp-self-repeat-0b-2026-05-05-deferral.json",
+    "wan_vace_dry_run_report": "reigh-worker/scripts/dual_run_compare/reports/dry-run-report.md",
+    "non_rayworker_gate": "reigh-worker/scripts/canary_readiness/non_rayworker.py",
+    "dashboard_import_probe": "execution_batch_1:T1"
+  },
+  "canary_panels": {
+    "selected_pool_totals": {
+      "status": "PAUSED",
+      "selected_worker_backend": "wgp",
+      "selected_worker_profile": "UNKNOWN",
+      "selected_worker_pool": "UNKNOWN",
+      "selector_namespace": "UNKNOWN",
+      "selector_version": "UNKNOWN",
+      "queued_only": "UNKNOWN",
+      "active_only": "UNKNOWN",
+      "queued_plus_active": "UNKNOWN",
+      "blocked_by_capacity": "UNKNOWN",
+      "potentially_claimable": "UNKNOWN",
+      "route_keys": [
+        "z_image_turbo",
+        "z_image_turbo_i2i",
+        "qwen_image",
+        "qwen_image_2512",
+        "wan_2_2_t2i",
+        "qwen_image_edit",
+        "qwen_image_style",
+        "image_inpaint",
+        "annotated_image_edit",
+        "individual_travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default",
+        "travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default",
+        "travel_segment__model-wan22_vace__guidance-vace__continuity-video_source__profile-default",
+        "join_clips_segment__model-wan22_vace__guidance-vace__continuity-join_bridge__profile-default",
+        "travel_segment__model-ltx2_distilled__guidance-ltx_anchor__continuity-video_source__profile-default"
+      ],
+      "route_cohort_status": {
+        "z_image_turbo": {"cohort": "A", "calibration_status": "deferred_pending_sprint_0c_disk", "live_canary_status": "UNKNOWN"},
+        "z_image_turbo_i2i": {"cohort": "A", "calibration_status": "deferred_pending_sprint_0c_disk", "live_canary_status": "UNKNOWN"},
+        "qwen_image": {"cohort": "A", "calibration_status": "wgp_only", "live_canary_status": "NO_GO"},
+        "qwen_image_2512": {"cohort": "A", "calibration_status": "wgp_only", "live_canary_status": "NO_GO"},
+        "wan_2_2_t2i": {"cohort": "A", "calibration_status": "deferred_pending_sprint_0c_disk", "live_canary_status": "UNKNOWN"},
+        "qwen_image_edit": {"cohort": "B", "calibration_status": "wgp_only", "live_canary_status": "NO_GO"},
+        "qwen_image_style": {"cohort": "B", "calibration_status": "wgp_only", "live_canary_status": "NO_GO"},
+        "image_inpaint": {"cohort": "B", "calibration_status": "wgp_only", "live_canary_status": "NO_GO"},
+        "annotated_image_edit": {"cohort": "B", "calibration_status": "wgp_only", "live_canary_status": "NO_GO"},
+        "individual_travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default": {"cohort": "E", "calibration_status": "deferred_pending_sprint_0c_disk", "live_canary_status": "UNKNOWN"},
+        "travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default": {"cohort": "E", "calibration_status": "deferred_pending_sprint_0c_disk", "live_canary_status": "UNKNOWN"},
+        "travel_segment__model-wan22_vace__guidance-vace__continuity-video_source__profile-default": {"cohort": "E", "calibration_status": "wgp_only", "live_canary_status": "NO_GO"},
+        "join_clips_segment__model-wan22_vace__guidance-vace__continuity-join_bridge__profile-default": {"cohort": "E", "calibration_status": "wgp_only", "live_canary_status": "NO_GO"},
+        "travel_segment__model-ltx2_distilled__guidance-ltx_anchor__continuity-video_source__profile-default": {"cohort": "E", "calibration_status": "deferred_pending_sprint_0c_disk", "live_canary_status": "UNKNOWN"}
+      }
+    },
+    "route_totals": {
+      "z_image_turbo": {"route_key": "z_image_turbo", "cohort": "A", "by_status": {"UNKNOWN": "UNKNOWN"}, "by_backend": {"UNKNOWN": "UNKNOWN"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "UNKNOWN"},
+      "z_image_turbo_i2i": {"route_key": "z_image_turbo_i2i", "cohort": "A", "by_status": {"UNKNOWN": "UNKNOWN"}, "by_backend": {"UNKNOWN": "UNKNOWN"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "UNKNOWN"},
+      "qwen_image": {"route_key": "qwen_image", "cohort": "A", "by_status": {"NO_GO": "wgp_only"}, "by_backend": {"wgp": "required"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "NO_GO"},
+      "qwen_image_2512": {"route_key": "qwen_image_2512", "cohort": "A", "by_status": {"NO_GO": "wgp_only"}, "by_backend": {"wgp": "required"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "NO_GO"},
+      "wan_2_2_t2i": {"route_key": "wan_2_2_t2i", "cohort": "A", "by_status": {"UNKNOWN": "UNKNOWN"}, "by_backend": {"UNKNOWN": "UNKNOWN"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "UNKNOWN"},
+      "qwen_image_edit": {"route_key": "qwen_image_edit", "cohort": "B", "by_status": {"NO_GO": "wgp_only"}, "by_backend": {"wgp": "required"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "NO_GO"},
+      "qwen_image_style": {"route_key": "qwen_image_style", "cohort": "B", "by_status": {"NO_GO": "wgp_only"}, "by_backend": {"wgp": "required"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "NO_GO"},
+      "image_inpaint": {"route_key": "image_inpaint", "cohort": "B", "by_status": {"NO_GO": "wgp_only"}, "by_backend": {"wgp": "required"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "NO_GO"},
+      "annotated_image_edit": {"route_key": "annotated_image_edit", "cohort": "B", "by_status": {"NO_GO": "wgp_only"}, "by_backend": {"wgp": "required"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "NO_GO"},
+      "individual_travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default": {"route_key": "individual_travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default", "cohort": "E", "by_status": {"UNKNOWN": "UNKNOWN"}, "by_backend": {"UNKNOWN": "UNKNOWN"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "UNKNOWN"},
+      "travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default": {"route_key": "travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default", "cohort": "E", "by_status": {"UNKNOWN": "UNKNOWN"}, "by_backend": {"UNKNOWN": "UNKNOWN"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "UNKNOWN"},
+      "travel_segment__model-wan22_vace__guidance-vace__continuity-video_source__profile-default": {"route_key": "travel_segment__model-wan22_vace__guidance-vace__continuity-video_source__profile-default", "cohort": "E", "by_status": {"NO_GO": "wgp_only"}, "by_backend": {"wgp": "required"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "NO_GO"},
+      "join_clips_segment__model-wan22_vace__guidance-vace__continuity-join_bridge__profile-default": {"route_key": "join_clips_segment__model-wan22_vace__guidance-vace__continuity-join_bridge__profile-default", "cohort": "E", "by_status": {"NO_GO": "wgp_only"}, "by_backend": {"wgp": "required"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "NO_GO"},
+      "travel_segment__model-ltx2_distilled__guidance-ltx_anchor__continuity-video_source__profile-default": {"route_key": "travel_segment__model-ltx2_distilled__guidance-ltx_anchor__continuity-video_source__profile-default", "cohort": "E", "by_status": {"UNKNOWN": "UNKNOWN"}, "by_backend": {"UNKNOWN": "UNKNOWN"}, "by_profile": {"UNKNOWN": "UNKNOWN"}, "by_selector": {"UNKNOWN/default": "UNKNOWN"}, "evidence_state": "UNKNOWN"}
+    },
+    "route_worker_health": {
+      "status": "UNKNOWN",
+      "reason": "No live or staging worker-health manifest was mechanically verified and dashboard import is blocked.",
+      "routes": {
+        "cohort_a": ["z_image_turbo", "z_image_turbo_i2i", "qwen_image", "qwen_image_2512", "wan_2_2_t2i"],
+        "cohort_b": ["qwen_image_edit", "qwen_image_style", "image_inpaint", "annotated_image_edit"],
+        "cohort_e": ["individual_travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default", "travel_segment__model-wan22_i2v__guidance-none__continuity-first_last__profile-default", "travel_segment__model-wan22_vace__guidance-vace__continuity-video_source__profile-default", "join_clips_segment__model-wan22_vace__guidance-vace__continuity-join_bridge__profile-default", "travel_segment__model-ltx2_distilled__guidance-ltx_anchor__continuity-video_source__profile-default"]
+      }
+    },
+    "claim_suppression": {
+      "status": "UNKNOWN",
+      "route_cohort_status_ref": "canary_panels.selected_pool_totals.route_cohort_status",
+      "reason": "No live task-counts claim-suppression response was mechanically verified."
+    },
+    "quota_alerts": [
+      {
+        "status": "UNKNOWN",
+        "route_cohort_status_ref": "canary_panels.selected_pool_totals.route_cohort_status",
+        "reason": "No live quota alert surface was mechanically verified."
+      }
+    ],
+    "preflight_status": {
+      "status": "NO_GO",
+      "dashboard_test_validation": "blocked_by_sprint11a_import_prerequisite",
+      "route_cohort_status_ref": "canary_panels.selected_pool_totals.route_cohort_status"
+    },
+    "warm_cache_status": {
+      "status": "UNKNOWN",
+      "route_cohort_status_ref": "canary_panels.selected_pool_totals.route_cohort_status",
+      "reason": "No live warm-cache observation manifest was mechanically verified."
+    },
+    "non_rayworker_route_health": {
+      "video_enhance": {
+        "route_key": "video_enhance",
+        "status": "red",
+        "task_id": null,
+        "observed_at": null,
+        "errors": ["missing recent live/staging observation"],
+        "fixture_policy": {"canary_depth": "full_canary", "report_status_policy": "red_or_green_required"},
+        "evidence_state": "UNKNOWN",
+        "runtime": "api_orchestrator"
+      },
+      "image-upscale": {
+        "route_key": "image-upscale",
+        "status": "red",
+        "task_id": null,
+        "observed_at": null,
+        "errors": ["missing recent live/staging observation"],
+        "fixture_policy": {"canary_depth": "full_canary", "report_status_policy": "red_or_green_required"},
+        "evidence_state": "UNKNOWN",
+        "runtime": "api_orchestrator"
+      },
+      "animate_character": {
+        "route_key": "animate_character",
+        "status": "red",
+        "task_id": null,
+        "observed_at": null,
+        "errors": ["missing recent live/staging observation"],
+        "fixture_policy": {"canary_depth": "full_canary", "report_status_policy": "red_or_green_required"},
+        "evidence_state": "UNKNOWN",
+        "runtime": "api_orchestrator"
+      },
+      "flux_klein_edit": {
+        "route_key": "flux_klein_edit",
+        "status": "red",
+        "task_id": null,
+        "observed_at": null,
+        "errors": ["missing recent live/staging observation"],
+        "fixture_policy": {"canary_depth": "full_canary", "report_status_policy": "red_or_green_required"},
+        "evidence_state": "UNKNOWN",
+        "runtime": "api_orchestrator"
+      }
+    }
+  }
+}
