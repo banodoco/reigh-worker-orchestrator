@@ -163,6 +163,8 @@ def test_worker_spawner_normalizes_missing_disk_env_to_dual_stack_default(monkey
 
     monkeypatch.delenv("RUNPOD_DISK_SIZE_GB", raising=False)
     monkeypatch.delenv("RUNPOD_CONTAINER_DISK_GB", raising=False)
+    monkeypatch.delenv("RUNPOD_STORAGE_VOLUMES", raising=False)
+    monkeypatch.delenv("RUNPOD_STORAGE_NAME", raising=False)
 
     config = WorkerSpawnerAdapter._normalize_runpod_config(
         RunPodConfig(api_key="api-key", disk_size_gb=50, container_disk_gb=50, storage_volumes=("Peter",))
@@ -170,6 +172,20 @@ def test_worker_spawner_normalizes_missing_disk_env_to_dual_stack_default(monkey
 
     assert config.disk_size_gb == 200
     assert config.container_disk_gb == 200
+
+
+def test_worker_spawner_preserves_explicit_empty_storage_override(monkeypatch) -> None:
+    from gpu_orchestrator.worker_spawner import WorkerSpawnerAdapter
+    from runpod_lifecycle import RunPodConfig
+
+    monkeypatch.setenv("RUNPOD_STORAGE_VOLUMES", "")
+    monkeypatch.delenv("RUNPOD_STORAGE_NAME", raising=False)
+
+    config = WorkerSpawnerAdapter._normalize_runpod_config(
+        RunPodConfig(api_key="api-key", storage_volumes=())
+    )
+
+    assert config.storage_volumes == ()
 
 
 def test_create_worker_spawner_passes_dual_stack_default_overrides(monkeypatch) -> None:

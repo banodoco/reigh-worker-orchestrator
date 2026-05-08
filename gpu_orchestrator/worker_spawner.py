@@ -331,7 +331,11 @@ class WorkerSpawnerAdapter:
     @staticmethod
     def _normalize_runpod_config(runpod_config: RunPodConfig) -> RunPodConfig:
         overrides: dict[str, Any] = {}
-        if not runpod_config.storage_volumes:
+        storage_config_explicit = (
+            "RUNPOD_STORAGE_VOLUMES" in os.environ
+            or "RUNPOD_STORAGE_NAME" in os.environ
+        )
+        if not runpod_config.storage_volumes and not storage_config_explicit:
             overrides["storage_volumes"] = LEGACY_STORAGE_VOLUMES
         if "RUNPOD_DISK_SIZE_GB" not in os.environ:
             overrides["disk_size_gb"] = DEFAULT_DUAL_STACK_DISK_GB
