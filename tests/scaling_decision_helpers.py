@@ -26,6 +26,7 @@ def make_config(**overrides) -> OrchestratorConfig:
         "overcapacity_idle_timeout_sec": 30,
         "task_stuck_timeout_sec": 1200,
         "graceful_shutdown_timeout_sec": 600,
+        "excluded_worker_max_lifetime_sec": 7200,
         "startup_grace_period_sec": 600,
         "ready_not_claiming_timeout_sec": 180,
         "gpu_not_detected_timeout_sec": 300,
@@ -62,6 +63,8 @@ def make_worker_state(
     should_terminate: bool = False,
     in_startup_phase: bool = False,
     is_route_stale: bool = False,
+    excluded_from_capacity_control: bool = False,
+    max_lifetime_sec: int | None = None,
 ) -> DerivedWorkerState:
     """Create a mock worker state for testing."""
     now = datetime.now(timezone.utc)
@@ -98,4 +101,6 @@ def make_worker_state(
         should_terminate=should_terminate,
         termination_reason=None,
         error_code=None,
+        excluded_from_capacity_control=excluded_from_capacity_control,
+        max_lifetime_sec=max_lifetime_sec,
     )
