@@ -52,3 +52,57 @@ def test_failsafe_skips_startup_phase_workers():
     host.runpod.get_pod_status.assert_not_called()
     host.runpod.terminate_worker.assert_not_called()
     assert summary["actions"] == {"tasks_reset": 0, "workers_failed": 0, "workers_terminated": 0}
+
+
+def test_failsafe_reaps_excluded_worker_past_max_lifetime():
+    """A live-test worker with a fresh heartbeat but past its wall-clock cap
+    must be reaped. This is the regression test for the leaked-pod incident:
+    harness pods polled forever after a crash because heartbeats stayed
+    current and nothing else bounded their lifetime.
+    """
+    excluded_state = replace(
+        make_worker_state(
+            worker_id="worker-livetest",
+            lifecycle=WorkerLifecycle.ACTIVE_READY,
+            excluded_from_capacity_control=True,
+            max_lifetime_sec=7200,
+        ),
+        effective_age_sec=10_000,  # past the 7200s cap
+        heartbeat_age_sec=5,        # heartbeat is fresh
+        heartbeat_is_recent=True,
+        has_heartbeat=True,
+    )
+
+    captured_worker = {
+        "id": "worker-livetest",
+        "status": "active",
+        "metadata": {"runpod_id": "runpod-worker-livetest", "live_test_variant": "fresh"},
+    }
+
+    class Host(periodic.PeriodicChecksMixin):
+        def __init__(self):
+            self.config = make_config()
+            self.db = SimpleNamespace(
+                get_worker_by_id=AsyncMock(return_value=captured_worker),
+                reset_orphaned_tasks=AsyncMock(return_value=0),
+                update_worker_status=AsyncMock(return_value=True),
+                get_workers=AsyncMock(return_value=[]),
+            )
+            runpod = Mock()
+            runpod.get_pod_status = Mock(return_value={"desired_status": "RUNNING"})
+            runpod.terminate_worker = Mock(return_value=True)
+            self.runpod = runpod
+            self.cycle_count = 1
+            self.last_storage_check_cycle = 0
+
+    host = Host()
+    summary = {"actions": {"tasks_reset": 0, "workers_failed": 0, "workers_terminated": 0}}
+
+    asyncio.run(host._failsafe_stale_worker_check([excluded_state], summary))
+
+    host.runpod.terminate_worker.assert_called_once_with("runpod-worker-livetest")
+    host.db.update_worker_status.assert_awaited_once()
+    args, _ = host.db.update_worker_status.await_args
+    assert args[0] == "worker-livetest"
+    assert args[1] == "terminated"
+    assert summary["actions"]["workers_failed"] == 1

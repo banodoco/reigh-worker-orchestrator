@@ -14,6 +14,8 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, TYPE_CHECKING
 
+from .live_test_workers import is_excluded_from_capacity_control
+
 if TYPE_CHECKING:
     from .config import OrchestratorConfig
 
@@ -86,6 +88,10 @@ class DerivedWorkerState:
     termination_reason: Optional[str]
     error_code: Optional[str]         # Structured error code for analytics
 
+    # Capacity / cleanup ownership
+    excluded_from_capacity_control: bool  # True for live-test and other harness-owned workers
+    max_lifetime_sec: Optional[int]       # Wall-clock cap from creation; None = unbounded
+
     @property
     def is_healthy(self) -> bool:
         """Worker is in a healthy, productive state."""
@@ -146,6 +152,18 @@ def derive_worker_state(
     db_status = worker['status']
     runpod_id = metadata.get('runpod_id')
     startup_phase = metadata.get('startup_phase')
+
+    excluded_from_capacity = is_excluded_from_capacity_control(worker)
+    explicit_max_lifetime = metadata.get('max_lifetime_sec')
+    if explicit_max_lifetime is not None:
+        try:
+            max_lifetime_sec: Optional[int] = int(explicit_max_lifetime)
+        except (TypeError, ValueError):
+            max_lifetime_sec = None
+    elif excluded_from_capacity:
+        max_lifetime_sec = config.excluded_worker_max_lifetime_sec
+    else:
+        max_lifetime_sec = None
     worker_route_contract = _worker_route_contract(metadata)
     current_route_contract = _current_route_contract(config)
     is_route_stale = not _route_contracts_compatible(worker_route_contract, current_route_contract)
@@ -315,6 +333,8 @@ def derive_worker_state(
         should_terminate=should_terminate,
         termination_reason=termination_reason,
         error_code=error_code,
+        excluded_from_capacity_control=excluded_from_capacity,
+        max_lifetime_sec=max_lifetime_sec,
     )
 
 

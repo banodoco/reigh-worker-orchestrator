@@ -5,7 +5,10 @@ from unittest.mock import AsyncMock
 
 from gpu_orchestrator.control.phases import state
 from gpu_orchestrator.control_loop import OrchestratorControlLoop
-from gpu_orchestrator.live_test_workers import filter_live_test_workers, is_live_test_worker
+from gpu_orchestrator.live_test_workers import (
+    is_excluded_from_capacity_control,
+    partition_capacity_workers,
+)
 from gpu_orchestrator.worker_state import WorkerLifecycle, derive_worker_state
 from tests.scaling_decision_helpers import make_config
 
@@ -17,15 +20,17 @@ def test_state_phase_mixin_exists():
 def test_live_test_worker_detection_uses_metadata_marker():
     worker = {"id": "worker-live", "metadata": {"live_test_variant": "fresh"}}
 
-    assert is_live_test_worker(worker) is True
-    assert filter_live_test_workers([worker]) == []
+    assert is_excluded_from_capacity_control(worker) is True
+    production, excluded = partition_capacity_workers([worker])
+    assert production == []
+    assert excluded == [worker]
 
 
-def test_control_loop_fetch_current_state_excludes_live_test_workers():
-    asyncio.run(_run_control_loop_fetch_filters_live_test_workers())
+def test_control_loop_fetch_current_state_partitions_excluded_workers():
+    asyncio.run(_run_control_loop_fetch_partitions_excluded_workers())
 
 
-async def _run_control_loop_fetch_filters_live_test_workers():
+async def _run_control_loop_fetch_partitions_excluded_workers():
     loop = OrchestratorControlLoop.__new__(OrchestratorControlLoop)
     loop.cycle_count = 1
     loop._log_detailed_task_breakdown = lambda *_args, **_kwargs: None
@@ -58,9 +63,10 @@ async def _run_control_loop_fetch_filters_live_test_workers():
         ),
     )
 
-    workers, task_counts, detailed_counts = await loop._fetch_current_state()
+    workers, excluded_workers, task_counts, detailed_counts = await loop._fetch_current_state()
 
     assert [worker["id"] for worker in workers] == ["worker-prod"]
+    assert [worker["id"] for worker in excluded_workers] == ["worker-live"]
     assert task_counts.total == 0
     assert detailed_counts is not None
 

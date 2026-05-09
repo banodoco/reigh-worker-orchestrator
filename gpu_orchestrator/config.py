@@ -64,6 +64,9 @@ class OrchestratorConfig:
     overcapacity_idle_timeout_sec: int
     task_stuck_timeout_sec: int
     graceful_shutdown_timeout_sec: int
+    # Wall-clock cap applied to workers excluded from production capacity
+    # control (e.g. live-test). Production workers default to None.
+    excluded_worker_max_lifetime_sec: int
 
     # Health check timeouts (seconds)
     startup_grace_period_sec: int
@@ -158,6 +161,7 @@ class OrchestratorConfig:
             overcapacity_idle_timeout_sec=int(os.getenv("GPU_OVERCAPACITY_IDLE_TIMEOUT_SEC", "30")),
             task_stuck_timeout_sec=int(os.getenv("TASK_STUCK_TIMEOUT_SEC", "1200")),
             graceful_shutdown_timeout_sec=int(os.getenv("GRACEFUL_SHUTDOWN_TIMEOUT_SEC", "600")),
+            excluded_worker_max_lifetime_sec=int(os.getenv("EXCLUDED_WORKER_MAX_LIFETIME_SEC", "7200")),
 
             # Health check timeouts
             startup_grace_period_sec=int(os.getenv("STARTUP_GRACE_PERIOD_SEC", "600")),
@@ -211,7 +215,7 @@ class OrchestratorConfig:
         logger.info(f"   Scaling: {self.min_active_gpus}-{self.max_active_gpus} GPUs, idle buffer: {self.machines_to_keep_idle}")
         logger.info(f"   Scaling multipliers: up={self.scale_up_multiplier}, down={self.scale_down_multiplier}")
         logger.info(f"   Scaling intervals: min={self.min_scaling_interval_sec}s, spawning_grace={self.spawning_grace_period_sec}s, scale_down_grace={self.scale_down_grace_period_sec}s")
-        logger.info(f"   Worker timeouts: spawning={self.spawning_timeout_sec}s, script_running={self.script_running_timeout_sec}s, idle={self.gpu_idle_timeout_sec}s, overcapacity_idle={self.overcapacity_idle_timeout_sec}s")
+        logger.info(f"   Worker timeouts: spawning={self.spawning_timeout_sec}s, script_running={self.script_running_timeout_sec}s, idle={self.gpu_idle_timeout_sec}s, overcapacity_idle={self.overcapacity_idle_timeout_sec}s, excluded_max_lifetime={self.excluded_worker_max_lifetime_sec}s")
         logger.info(f"   Task timeout: stuck={self.task_stuck_timeout_sec}s")
         logger.info(f"   Health: startup_grace={self.startup_grace_period_sec}s, not_claiming={self.ready_not_claiming_timeout_sec}s, gpu_not_detected={self.gpu_not_detected_timeout_sec}s")
         logger.info(f"   Promotion: heartbeat_threshold={self.heartbeat_promotion_threshold_sec}s")
