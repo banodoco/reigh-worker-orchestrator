@@ -7,6 +7,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Dict, List, Optional, Tuple
 
+from gpu_orchestrator.live_test_workers import partition_capacity_workers
 from gpu_orchestrator.worker_state import DerivedWorkerState, TaskCounts, derive_worker_state
 
 logger = logging.getLogger(__name__)
@@ -20,18 +21,30 @@ class StatePhaseMixin:
 
     async def _fetch_current_state(
         self: "ControlHost",
-    ) -> Tuple[List[Dict[str, Any]], TaskCounts, Optional[Dict[str, Any]]]:
-        """Fetch workers and task counts from database. Returns (workers, task_counts, detailed_counts)."""
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], TaskCounts, Optional[Dict[str, Any]]]:
+        """Fetch workers and task counts from database.
+
+        Returns ``(production_workers, excluded_workers, task_counts, detailed_counts)``.
+        Excluded workers (live-test) bypass capacity math and the spawn/health
+        phases, but the periodic cleanup checks still see them.
+        """
         # Only fetch non-terminated workers for the main control loop.
         # Terminated workers don't need lifecycle checks, and including them
         # bloats the .in_() queries in batch_check_ever_claimed / batch_check_active_tasks
         # past PostgREST's URL length limit, causing 400 errors.
-        workers = await self.db.get_workers(status=["spawning", "active", "error"])
+        fetched_workers = await self.db.get_workers(status=["spawning", "active", "error"])
+        workers, excluded_workers = partition_capacity_workers(fetched_workers)
+        if excluded_workers:
+            logger.info(
+                "Ignoring %s worker(s) for production capacity control (cleanup still applies)",
+                len(excluded_workers),
+            )
 
         detailed_counts = await self.db.get_detailed_task_counts_via_edge_function()
 
         if detailed_counts:
-            totals = detailed_counts.get("totals", {})
+            aggregate_totals = detailed_counts.get("totals", {})
+            totals = detailed_counts.get("selected_pool_totals") or aggregate_totals
             active_cloud_count = totals.get("active_only", 0)
 
             potentially_claimable = totals.get("potentially_claimable")
@@ -44,13 +57,15 @@ class StatePhaseMixin:
                 blocked_capacity = totals.get("blocked_by_capacity", 0)
                 blocked_deps = totals.get("blocked_by_deps", 0)
                 blocked_settings = totals.get("blocked_by_settings", 0)
+                route_keys = totals.get("route_keys")
 
                 logger.debug(
                     f"TASK COUNT (Cycle #{self.cycle_count}): "
                     f"Scaling={potentially_claimable} "
                     f"(queued_only={queued_only} + capacity_blocked={blocked_capacity}), "
                     f"Active={active_cloud_count}, "
-                    f"[NOT scaling for: deps_blocked={blocked_deps}, settings_blocked={blocked_settings}]"
+                    f"[NOT scaling for: deps_blocked={blocked_deps}, settings_blocked={blocked_settings}], "
+                    f"route_keys={route_keys}"
                 )
             else:
                 queued_count = totals.get("queued_only", 0)
@@ -69,7 +84,12 @@ class StatePhaseMixin:
             logger.warning(f"Fallback returned: {total_tasks} total, {queued_count} queued")
 
         logger.info(f"Cycle #{self.cycle_count}: scaling={queued_count} active={active_cloud_count}")
-        return workers, TaskCounts(queued=queued_count, active_cloud=active_cloud_count, total=total_tasks), detailed_counts
+        return (
+            workers,
+            excluded_workers,
+            TaskCounts(queued=queued_count, active_cloud=active_cloud_count, total=total_tasks),
+            detailed_counts,
+        )
 
     async def _derive_all_worker_states(
         self: "ControlHost",

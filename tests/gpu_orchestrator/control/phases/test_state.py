@@ -1,12 +1,74 @@
+import asyncio
 from datetime import datetime, timezone
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 from gpu_orchestrator.control.phases import state
+from gpu_orchestrator.control_loop import OrchestratorControlLoop
+from gpu_orchestrator.live_test_workers import (
+    is_excluded_from_capacity_control,
+    partition_capacity_workers,
+)
 from gpu_orchestrator.worker_state import WorkerLifecycle, derive_worker_state
 from tests.scaling_decision_helpers import make_config
 
 
 def test_state_phase_mixin_exists():
     assert hasattr(state, "StatePhaseMixin")
+
+
+def test_live_test_worker_detection_uses_metadata_marker():
+    worker = {"id": "worker-live", "metadata": {"live_test_variant": "fresh"}}
+
+    assert is_excluded_from_capacity_control(worker) is True
+    production, excluded = partition_capacity_workers([worker])
+    assert production == []
+    assert excluded == [worker]
+
+
+def test_control_loop_fetch_current_state_partitions_excluded_workers():
+    asyncio.run(_run_control_loop_fetch_partitions_excluded_workers())
+
+
+async def _run_control_loop_fetch_partitions_excluded_workers():
+    loop = OrchestratorControlLoop.__new__(OrchestratorControlLoop)
+    loop.cycle_count = 1
+    loop._log_detailed_task_breakdown = lambda *_args, **_kwargs: None
+    loop.db = SimpleNamespace(
+        get_workers=AsyncMock(
+            return_value=[
+                {
+                    "id": "worker-prod",
+                    "status": "active",
+                    "metadata": {"runpod_id": "pod-prod"},
+                },
+                {
+                    "id": "worker-live",
+                    "status": "active",
+                    "metadata": {"runpod_id": "pod-live", "live_test_variant": "fresh"},
+                },
+            ]
+        ),
+        get_detailed_task_counts_via_edge_function=AsyncMock(
+            return_value={
+                "totals": {
+                    "active_only": 0,
+                    "potentially_claimable": 0,
+                    "queued_only": 0,
+                    "blocked_by_capacity": 0,
+                    "blocked_by_deps": 0,
+                    "blocked_by_settings": 0,
+                }
+            }
+        ),
+    )
+
+    workers, excluded_workers, task_counts, detailed_counts = await loop._fetch_current_state()
+
+    assert [worker["id"] for worker in workers] == ["worker-prod"]
+    assert [worker["id"] for worker in excluded_workers] == ["worker-live"]
+    assert task_counts.total == 0
+    assert detailed_counts is not None
 
 
 def _make_worker(*, startup_phase=None, last_heartbeat=None):

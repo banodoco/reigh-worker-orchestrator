@@ -23,6 +23,8 @@ class PeriodicChecksMixin:
     async def _run_periodic_checks(
         self: "ControlHost",
         worker_states: List[DerivedWorkerState],
+        excluded_workers: List[Dict[str, Any]],
+        queued_count: int,
         summary: CycleSummary,
     ) -> None:
         """Run checks that only happen every Nth cycle."""
@@ -47,7 +49,10 @@ class PeriodicChecksMixin:
 
         await self._check_storage_health(active_workers, periodic_summary)
 
-        await self._failsafe_stale_worker_check(worker_states, periodic_summary)
+        # Failsafe applies to ALL workers — including excluded ones — so
+        # harness crashes can't leak GPUs.
+        excluded_states = await self._derive_all_worker_states(excluded_workers, queued_count) if excluded_workers else []
+        await self._failsafe_stale_worker_check(worker_states + excluded_states, periodic_summary)
 
         summary.tasks_reset += periodic_summary["actions"].get("tasks_reset", 0)
         summary.workers_failed += periodic_summary["actions"].get("workers_failed", 0)
@@ -177,12 +182,24 @@ class PeriodicChecksMixin:
         worker_states: List[DerivedWorkerState],
         summary: Dict[str, Any],
     ) -> None:
-        """Failsafe check for workers with very stale heartbeats."""
+        """Failsafe check for workers that should be reaped.
+
+        Catches three failure modes: wall-clock cap exceeded, stuck spawning,
+        stale heartbeat. The wall-clock cap fires even with a fresh heartbeat
+        so harness pods that poll forever after a crash still get reaped.
+        """
         now = datetime.now(timezone.utc)
         stale_workers: List[DerivedWorkerState] = []
 
         for ws in worker_states:
             if ws.is_terminal:
+                continue
+
+            # Hard wall-clock cap — checked BEFORE the recent-heartbeat
+            # short-circuit so a healthy-looking but indefinitely-polling
+            # worker still gets reaped.
+            if ws.max_lifetime_sec is not None and ws.effective_age_sec > ws.max_lifetime_sec:
+                stale_workers.append(ws)
                 continue
 
             if ws.in_startup_phase:
@@ -191,7 +208,9 @@ class PeriodicChecksMixin:
             if ws.should_terminate:
                 continue
 
-            # Idle healthy workers are PATH B's responsibility (scaling execution)
+            # Idle healthy workers are PATH B's responsibility (scaling execution).
+            # Excluded workers don't go through PATH B, so the cap above is
+            # what bounds their lifetime.
             if ws.is_active and not ws.has_active_task and ws.heartbeat_is_recent:
                 continue
 

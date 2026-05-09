@@ -2,7 +2,9 @@
 
 import inspect
 import importlib
+import os
 from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -120,3 +122,116 @@ def test_worker_spawner_adapter_async_contract() -> None:
         assert inspect.iscoroutinefunction(getattr(WorkerSpawnerAdapter, method_name))
 
     assert not inspect.iscoroutinefunction(WorkerSpawnerAdapter.generate_worker_id)
+
+
+def test_worker_spawner_threads_selected_pool_contract_to_env_and_metadata() -> None:
+    from gpu_orchestrator.worker_spawner import WorkerSpawnerAdapter
+    from runpod_lifecycle import RunPodConfig
+
+    config = SimpleNamespace(
+        worker_backend="vibecomfy",
+        worker_profile="3",
+        worker_pool="gpu-vibecomfy-canary",
+        selector_namespace="canary",
+        selector_version="42",
+        worker_contract_version=2,
+        worker_run_id="run-abc",
+    )
+    adapter = WorkerSpawnerAdapter(config, db=None, runpod_config=RunPodConfig(api_key="api-key"))
+
+    env = adapter._build_worker_env("worker-1", worker_env=None)
+    metadata = adapter.selected_route_metadata()
+
+    assert env["REIGH_BACKEND"] == "vibecomfy"
+    assert env["WORKER_BACKEND"] == "vibecomfy"
+    assert env["REIGH_WORKER_PROFILE"] == "3"
+    assert env["WGP_PROFILE"] == "3"
+    assert env["REIGH_WORKER_POOL"] == "gpu-vibecomfy-canary"
+    assert env["REIGH_SELECTOR_NAMESPACE"] == "canary"
+    assert env["REIGH_SELECTOR_VERSION"] == "42"
+    assert env["REIGH_WORKER_CONTRACT_VERSION"] == "2"
+    assert env["REIGH_WORKER_RUN_ID"] == "run-abc"
+    assert env["VIBECOMFY_MEMORY_PROFILE"] == "3"
+    assert metadata["worker_backend"] == "vibecomfy"
+    assert metadata["route_contract"]["selected_backend"] == "vibecomfy"
+    assert metadata["route_contract"]["route_run_id"] == "run-abc"
+
+
+def test_worker_spawner_normalizes_missing_disk_env_to_dual_stack_default(monkeypatch) -> None:
+    from gpu_orchestrator.worker_spawner import WorkerSpawnerAdapter
+    from runpod_lifecycle import RunPodConfig
+
+    monkeypatch.delenv("RUNPOD_DISK_SIZE_GB", raising=False)
+    monkeypatch.delenv("RUNPOD_CONTAINER_DISK_GB", raising=False)
+    monkeypatch.delenv("RUNPOD_STORAGE_VOLUMES", raising=False)
+    monkeypatch.delenv("RUNPOD_STORAGE_NAME", raising=False)
+
+    config = WorkerSpawnerAdapter._normalize_runpod_config(
+        RunPodConfig(api_key="api-key", disk_size_gb=50, container_disk_gb=50, storage_volumes=("Peter",))
+    )
+
+    assert config.disk_size_gb == 200
+    assert config.container_disk_gb == 200
+
+
+def test_worker_spawner_preserves_explicit_empty_storage_override(monkeypatch) -> None:
+    from gpu_orchestrator.worker_spawner import WorkerSpawnerAdapter
+    from runpod_lifecycle import RunPodConfig
+
+    monkeypatch.setenv("RUNPOD_STORAGE_VOLUMES", "")
+    monkeypatch.delenv("RUNPOD_STORAGE_NAME", raising=False)
+
+    config = WorkerSpawnerAdapter._normalize_runpod_config(
+        RunPodConfig(api_key="api-key", storage_volumes=())
+    )
+
+    assert config.storage_volumes == ()
+
+
+def test_create_worker_spawner_passes_dual_stack_default_overrides(monkeypatch) -> None:
+    import gpu_orchestrator.worker_spawner as worker_spawner
+    from runpod_lifecycle import RunPodConfig
+
+    captured_overrides: dict[str, object] = {}
+
+    def fake_from_env(**overrides):
+        captured_overrides.update(overrides)
+        return RunPodConfig(api_key="api-key", **overrides)
+
+    monkeypatch.delenv("RUNPOD_DISK_SIZE_GB", raising=False)
+    monkeypatch.delenv("RUNPOD_CONTAINER_DISK_GB", raising=False)
+    monkeypatch.setattr(worker_spawner.RunPodConfig, "from_env", staticmethod(fake_from_env))
+
+    adapter = worker_spawner.create_worker_spawner(config=None, db=None)
+
+    assert captured_overrides["disk_size_gb"] == 200
+    assert captured_overrides["container_disk_gb"] == 200
+    assert adapter.runpod_config.disk_size_gb == 200
+    assert adapter.runpod_config.container_disk_gb == 200
+
+
+def test_create_worker_spawner_preserves_disk_env_overrides(monkeypatch) -> None:
+    import gpu_orchestrator.worker_spawner as worker_spawner
+    from runpod_lifecycle import RunPodConfig
+
+    captured_overrides: dict[str, object] = {}
+
+    def fake_from_env(**overrides):
+        captured_overrides.update(overrides)
+        return RunPodConfig(
+            api_key="api-key",
+            disk_size_gb=int(os.environ["RUNPOD_DISK_SIZE_GB"]),
+            container_disk_gb=int(os.environ["RUNPOD_CONTAINER_DISK_GB"]),
+            **overrides,
+        )
+
+    monkeypatch.setenv("RUNPOD_DISK_SIZE_GB", "50")
+    monkeypatch.setenv("RUNPOD_CONTAINER_DISK_GB", "50")
+    monkeypatch.setattr(worker_spawner.RunPodConfig, "from_env", staticmethod(fake_from_env))
+
+    adapter = worker_spawner.create_worker_spawner(config=None, db=None)
+
+    assert "disk_size_gb" not in captured_overrides
+    assert "container_disk_gb" not in captured_overrides
+    assert adapter.runpod_config.disk_size_gb == 50
+    assert adapter.runpod_config.container_disk_gb == 50

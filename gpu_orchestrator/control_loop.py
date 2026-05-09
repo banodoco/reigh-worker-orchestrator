@@ -28,6 +28,10 @@ from .worker_state import (
 )
 from .database import DatabaseClient
 from .health_monitor import OrchestratorHealthMonitor
+from .live_test_workers import (
+    is_excluded_from_capacity_control,
+    partition_capacity_workers,
+)
 from .logging_config import set_current_worker
 from .worker_spawner import create_worker_spawner
 
@@ -103,7 +107,7 @@ class OrchestratorControlLoop:
 
         try:
             # Phase 1: Fetch current state
-            workers, task_counts, detailed_counts = await self._fetch_current_state()
+            workers, excluded_workers, task_counts, detailed_counts = await self._fetch_current_state()
 
             # Phase 2: Derive state for all workers
             worker_states = await self._derive_all_worker_states(workers, task_counts.queued)
@@ -129,8 +133,9 @@ class OrchestratorControlLoop:
             # Phase 9: Execute scaling
             await self._execute_scaling(scaling, worker_states, task_counts, summary, detailed_counts)
 
-            # Phase 10: Periodic checks (storage, zombies)
-            await self._run_periodic_checks(worker_states, summary)
+            # Phase 10: Periodic checks (storage, zombies). Cleanup paths
+            # also see excluded workers so harness crashes can't leak GPUs.
+            await self._run_periodic_checks(worker_states, excluded_workers, task_counts.queued, summary)
 
         except Exception as e:
             logger.error(f"Error in orchestrator cycle: {e}")
@@ -162,12 +167,25 @@ class OrchestratorControlLoop:
     # PHASE 1: Fetch current state
     # =========================================================================
 
-    async def _fetch_current_state(self) -> Tuple[List[Dict], TaskCounts, Optional[Dict]]:
-        """Fetch workers and task counts from database. Returns (workers, task_counts, detailed_counts)."""
+    async def _fetch_current_state(self) -> Tuple[List[Dict], List[Dict], TaskCounts, Optional[Dict]]:
+        """Fetch workers and task counts from database.
+
+        Returns ``(production_workers, excluded_workers, task_counts, detailed_counts)``.
+
+        Excluded workers (currently: live-test) bypass production capacity math
+        and the spawn/health phases — but the periodic cleanup checks still see
+        them, so harness crashes can't leak GPUs.
+        """
         # Only fetch non-terminated workers. Terminated workers don't need
         # lifecycle checks, and including them bloats .in_() batch queries
         # past PostgREST URL limits, causing silent 400 errors.
-        workers = await self.db.get_workers(status=["spawning", "active", "error"])
+        fetched_workers = await self.db.get_workers(status=["spawning", "active", "error"])
+        workers, excluded_workers = partition_capacity_workers(fetched_workers)
+        if excluded_workers:
+            logger.info(
+                "Ignoring %s worker(s) for production capacity control (cleanup still applies)",
+                len(excluded_workers),
+            )
 
         # Get detailed task counts from edge function
         detailed_counts = await self.db.get_detailed_task_counts_via_edge_function()
@@ -216,7 +234,12 @@ class OrchestratorControlLoop:
             logger.warning(f"Fallback returned: {total_tasks} total, {queued_count} queued")
 
         logger.info(f"Cycle #{self.cycle_count}: scaling={queued_count} active={active_cloud_count}")
-        return workers, TaskCounts(queued=queued_count, active_cloud=active_cloud_count, total=total_tasks), detailed_counts
+        return (
+            workers,
+            excluded_workers,
+            TaskCounts(queued=queued_count, active_cloud=active_cloud_count, total=total_tasks),
+            detailed_counts,
+        )
 
     def _log_detailed_task_breakdown(self, detailed_counts: Dict, scaling_queued: int, active: int, total: int):
         """Log detailed task breakdown for debugging."""
@@ -330,8 +353,11 @@ class OrchestratorControlLoop:
         now = datetime.now(timezone.utc)
         config = self.config
 
-        spawning_states = [ws for ws in worker_states if ws.is_spawning]
-        active_states = [ws for ws in worker_states if ws.is_active and not ws.is_terminal]
+        spawning_states = [ws for ws in worker_states if ws.is_spawning and not ws.is_route_stale]
+        active_states = [
+            ws for ws in worker_states
+            if ws.is_active and not ws.is_terminal and not ws.is_route_stale
+        ]
 
         current_capacity = len(active_states) + len(spawning_states)
 
@@ -469,7 +495,8 @@ class OrchestratorControlLoop:
                             metadata_update = {
                                 'ssh_details': status_update.get('ssh_details'),
                                 'startup_script_launched': True,
-                                'startup_script_launched_at': datetime.now(timezone.utc).isoformat()
+                                'startup_script_launched_at': datetime.now(timezone.utc).isoformat(),
+                                **self._selected_route_metadata(),
                             }
                             await self.db.update_worker_status(worker_id, 'spawning', metadata_update)
                             summary.startup_scripts_launched += 1
@@ -923,6 +950,7 @@ class OrchestratorControlLoop:
     ) -> None:
         """Spawn or terminate workers based on scaling decision."""
         config = self.config
+        await self._handle_stale_route_workers(worker_states, summary)
 
         # Scale down: terminate idle workers
         if decision.should_scale_down:
@@ -933,7 +961,10 @@ class OrchestratorControlLoop:
                 dynamic_timeout = config.gpu_idle_timeout_sec
 
             # Find terminatable workers
-            active_states = [ws for ws in worker_states if ws.is_active and not ws.has_active_task]
+            active_states = [
+                ws for ws in worker_states
+                if ws.is_active and not ws.has_active_task and not ws.is_route_stale
+            ]
             terminatable = []
 
             for ws in active_states:
@@ -1009,6 +1040,40 @@ class OrchestratorControlLoop:
                 else:
                     logger.error(f"Failed to spawn worker {i + 1}/{decision.workers_to_spawn}")
 
+    async def _handle_stale_route_workers(
+        self,
+        worker_states: List[DerivedWorkerState],
+        summary: CycleSummary,
+    ) -> None:
+        """Drain active route-stale workers and terminate idle route-stale workers."""
+        for ws in worker_states:
+            if not ws.is_route_stale or ws.is_terminal:
+                continue
+            if ws.has_active_task:
+                logger.info(
+                    "Draining route-stale worker %s with active task; no new-route capacity credit",
+                    ws.worker_id,
+                )
+                continue
+
+            worker = await self.db.get_worker_by_id(ws.worker_id)
+            if not worker:
+                logger.warning("Route-stale worker %s disappeared before termination", ws.worker_id)
+                continue
+
+            reason = ws.termination_reason or "STALE_ROUTE_CONTRACT"
+            if not reason.startswith("STALE_ROUTE_CONTRACT"):
+                reason = f"STALE_ROUTE_CONTRACT: {reason}"
+            if await self._terminate_worker(worker, reason=reason):
+                summary.workers_terminated += 1
+                logger.info("Terminated idle route-stale worker %s", ws.worker_id)
+
+    def _selected_route_metadata(self) -> Dict[str, Any]:
+        metadata_fn = getattr(self.runpod, "selected_route_metadata", None)
+        if callable(metadata_fn):
+            return metadata_fn()
+        return {}
+
     # =========================================================================
     # PHASE 10: Periodic checks
     # =========================================================================
@@ -1016,7 +1081,9 @@ class OrchestratorControlLoop:
     async def _run_periodic_checks(
         self,
         worker_states: List[DerivedWorkerState],
-        summary: CycleSummary
+        excluded_workers: List[Dict],
+        queued_count: int,
+        summary: CycleSummary,
     ) -> None:
         """Run checks that only happen every Nth cycle."""
         # Create a mutable dict to track periodic check results
@@ -1030,7 +1097,7 @@ class OrchestratorControlLoop:
             'storage_health': {}
         }
 
-        # Storage health check
+        # Storage health check (production workers only — harness owns its volumes)
         active_workers = []
         for ws in worker_states:
             if ws.is_active:
@@ -1040,8 +1107,12 @@ class OrchestratorControlLoop:
 
         await self._check_storage_health(active_workers, periodic_summary)
 
-        # Failsafe stale worker check
-        await self._failsafe_stale_worker_check(worker_states, periodic_summary)
+        # Failsafe stale worker check applies to ALL workers — production AND
+        # excluded. Cleanup is the orchestrator's job regardless of who owns
+        # the spawn lifecycle, so harness crashes don't leak GPUs.
+        excluded_states = await self._derive_all_worker_states(excluded_workers, queued_count) if excluded_workers else []
+        all_states = worker_states + excluded_states
+        await self._failsafe_stale_worker_check(all_states, periodic_summary)
 
         # Copy results back to the main summary
         summary.tasks_reset += periodic_summary['actions'].get('tasks_reset', 0)
@@ -1319,6 +1390,7 @@ class OrchestratorControlLoop:
                     final_status = 'spawning'
 
                 metadata = {'runpod_id': pod_id}
+                metadata.update(self._selected_route_metadata())
                 if status == 'error':
                     metadata['termination_reason'] = 'spawn_failed'
                     metadata['terminated_at'] = datetime.now(timezone.utc).isoformat()
@@ -1567,12 +1639,27 @@ class OrchestratorControlLoop:
                     logger.error(f"[ERROR_CLEANUP] Failed to cleanup legacy error worker {worker_id}: {e}")
 
     async def _failsafe_stale_worker_check(self, worker_states: List[DerivedWorkerState], summary: Dict[str, Any]) -> None:
-        """Failsafe check for workers with very stale heartbeats."""
+        """Failsafe check for workers that should be reaped.
+
+        Catches three failure modes:
+        1. Wall-clock cap exceeded (max_lifetime_sec) — fires even with a
+           fresh heartbeat. Catches harness pods that poll forever after a
+           crash, where heartbeats stay current but no work ever runs.
+        2. Stuck in spawning past spawning_timeout_sec.
+        3. Stale heartbeat past gpu_idle_timeout_sec.
+        """
         now = datetime.now(timezone.utc)
         stale_workers: List[Tuple[DerivedWorkerState, float]] = []
 
         for ws in worker_states:
             if ws.is_terminal:
+                continue
+
+            # (1) Hard wall-clock cap. Checked BEFORE the recent-heartbeat
+            # short-circuit so a healthy-looking but indefinitely-polling
+            # worker still gets reaped.
+            if ws.max_lifetime_sec is not None and ws.effective_age_sec > ws.max_lifetime_sec:
+                stale_workers.append((ws, ws.effective_age_sec))
                 continue
 
             if ws.in_startup_phase:
@@ -1581,7 +1668,10 @@ class OrchestratorControlLoop:
             if ws.should_terminate:
                 continue
 
-            # Idle healthy workers are PATH B's responsibility (scaling execution)
+            # Idle healthy workers are PATH B's responsibility (scaling execution).
+            # Excluded workers don't go through PATH B, so the wall-clock cap
+            # above is the only thing that bounds their lifetime — that's
+            # intentional.
             if ws.is_active and not ws.has_active_task and ws.heartbeat_is_recent:
                 continue
 

@@ -13,6 +13,8 @@ from urllib.parse import urlparse
 
 import httpx
 
+from .shadow_side_effects import is_shadow_mode, record_shadow_side_effect, shadow_public_url
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,8 +59,9 @@ async def upload_to_supabase_storage_only(client: httpx.AsyncClient, task_id: st
         file_size_mb = len(file_data) / (1024 * 1024)
         logger.info(f"Uploading {len(file_data)} bytes ({file_size_mb:.2f}MB) to Supabase storage (no task completion) as {safe_filename}")
         
-        # Construct storage path
-        storage_path = f"task_outputs/{safe_filename}"
+        # Construct canonical intermediate artifact path. This helper does not
+        # have a task owner id, so it uses an API-orchestrator namespace.
+        storage_path = f"api-orchestrator/tasks/{task_id}/intermediates/{safe_filename}"
         upload_url = f"{supabase_url}/storage/v1/object/image_uploads/{storage_path}"
         
         headers = {
@@ -66,6 +69,22 @@ async def upload_to_supabase_storage_only(client: httpx.AsyncClient, task_id: st
             "Content-Type": content_type,
             "x-upsert": "true"
         }
+
+        if is_shadow_mode():
+            record_shadow_side_effect(
+                effect="upload",
+                operation="storage-upload-only",
+                task_id=task_id,
+                endpoint=upload_url,
+                metadata={
+                    "filename": safe_filename,
+                    "content_type": content_type,
+                    "byte_count": len(file_data),
+                    "storage_path": storage_path,
+                    "artifact_class": "intermediate",
+                },
+            )
+            return shadow_public_url(task_id, safe_filename, operation="storage-upload-only")
         
         # Upload directly to storage
         logger.info(f"Uploading directly to storage path: {storage_path}")
@@ -164,6 +183,21 @@ async def _upload_direct_base64(client: httpx.AsyncClient, task_id: str, file_da
         payload["first_frame_filename"] = f"{base_name}_screenshot.png"
     
     logger.info(f"Direct upload: {len(file_data)} bytes -> {len(file_base64)} chars base64")
+
+    if is_shadow_mode():
+        record_shadow_side_effect(
+            effect="completion",
+            operation="complete_task-direct-base64",
+            task_id=task_id,
+            endpoint=complete_task_url,
+            payload=payload,
+            metadata={
+                "filename": filename,
+                "byte_count": len(file_data),
+                "has_first_frame": bool(first_frame_data),
+            },
+        )
+        return shadow_public_url(task_id, filename, operation="complete-task-direct-base64")
     
     response = await client.post(complete_task_url, headers=headers, json=payload, timeout=120)
     
@@ -195,10 +229,46 @@ async def _upload_presigned_url(client: httpx.AsyncClient, task_id: str, file_da
         "task_id": task_id,
         "filename": filename,
         "content_type": content_type,
+        "artifact_class": "final",
         "generate_thumbnail_url": bool(first_frame_data)  # Request thumbnail URL if we have screenshot
     }
     
     logger.info(f"Requesting pre-signed upload URL for task {task_id}")
+
+    if is_shadow_mode():
+        record_shadow_side_effect(
+            effect="upload",
+            operation="generate-upload-url",
+            task_id=task_id,
+            endpoint=generate_upload_url,
+            payload=generate_payload,
+            metadata={"filename": filename, "byte_count": len(file_data)},
+        )
+        record_shadow_side_effect(
+            effect="upload",
+            operation="storage-upload",
+            task_id=task_id,
+            endpoint="shadow://presigned-upload-url",
+            metadata={"filename": filename, "content_type": content_type, "byte_count": len(file_data)},
+        )
+        if first_frame_data:
+            record_shadow_side_effect(
+                effect="upload",
+                operation="storage-upload-thumbnail",
+                task_id=task_id,
+                endpoint="shadow://presigned-thumbnail-upload-url",
+                metadata={"filename": f"{Path(filename).stem}_screenshot.png"},
+            )
+        record_shadow_side_effect(
+            effect="completion",
+            operation="complete_task-post-upload",
+            task_id=task_id,
+            endpoint=complete_task_url,
+            payload={"task_id": task_id, "storage_path": f"shadow/{task_id}/{filename}"},
+            metadata={"filename": filename},
+        )
+        return shadow_public_url(task_id, filename, operation="presigned-upload")
+
     response = await client.post(generate_upload_url, headers=headers, json=generate_payload, timeout=30)
     response.raise_for_status()
     

@@ -22,6 +22,7 @@ from dotenv import load_dotenv
 from runpod_lifecycle import RunPodConfig, get_network_volumes, launch, terminate
 from runpod_lifecycle import api as runpod_api
 
+from gpu_orchestrator.database import selected_pool_route_filter, selected_pool_route_metadata
 from gpu_orchestrator.runpod import startup_script
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,7 @@ logger = logging.getLogger(__name__)
 SSHResult: TypeAlias = tuple[int, str, str] | None
 
 LEGACY_STORAGE_VOLUMES = ("Peter", "EU-NO-1", "EU-CZ-1", "EUR-IS-1")
+DEFAULT_DUAL_STACK_DISK_GB = 200
 STORAGE_CHECK_COMMAND = """
             echo "=== WORKSPACE STORAGE ==="
             df -h /workspace 2>/dev/null | tail -1
@@ -63,6 +65,7 @@ class WorkerSpawnerAdapter:
             replicate_api_token=os.getenv("REPLICATE_API_TOKEN", ""),
             max_task_wait_minutes=self.max_task_wait_minutes,
             has_pending_tasks=False,
+            **self._startup_route_kwargs(),
         )
         launch_config = self.runpod_config.merge(env_vars=env_vars)
         try:
@@ -88,6 +91,7 @@ class WorkerSpawnerAdapter:
             "ram_tier": getattr(pod, "_ram_tier", None),
             "storage_volume": storage_name,
             "storage_volume_id": storage_volume_id,
+            **self.selected_route_metadata(),
         }
 
     async def start_worker_process(
@@ -105,6 +109,7 @@ class WorkerSpawnerAdapter:
             replicate_api_token=os.getenv("REPLICATE_API_TOKEN", ""),
             max_task_wait_minutes=self.max_task_wait_minutes,
             has_pending_tasks=has_pending_tasks,
+            **self._startup_route_kwargs(),
         )
         script_path = f"/tmp/start_worker_{worker_id}.sh"
         create_command = startup_script.build_create_script_command(script_path, script_content)
@@ -254,6 +259,7 @@ class WorkerSpawnerAdapter:
         worker_env: Optional[dict[str, str]],
     ) -> dict[str, str]:
         supabase_url = os.getenv("SUPABASE_URL", "").rstrip("/")
+        route_filter = self._selected_route_filter()
         env_vars = dict(self.runpod_config.env_vars)
         env_vars.update(
             {
@@ -264,21 +270,77 @@ class WorkerSpawnerAdapter:
                 "REPLICATE_API_TOKEN": os.getenv("REPLICATE_API_TOKEN", ""),
                 "SUPABASE_EDGE_COMPLETE_TASK_URL": f"{supabase_url}/functions/v1/complete_task" if supabase_url else "",
                 "SUPABASE_EDGE_MARK_FAILED_URL": f"{supabase_url}/functions/v1/mark-task-failed" if supabase_url else "",
+                "REIGH_BACKEND": route_filter["worker_backend"],
+                "WORKER_BACKEND": route_filter["worker_backend"],
+                "REIGH_WORKER_PROFILE": route_filter["worker_profile"],
+                "WGP_PROFILE": route_filter["worker_profile"],
+                "REIGH_WORKER_POOL": route_filter["worker_pool"],
+                "WORKER_POOL": route_filter["worker_pool"],
+                "REIGH_SELECTOR_NAMESPACE": route_filter["selector_namespace"],
+                "ROUTE_SELECTOR_NAMESPACE": route_filter["selector_namespace"],
+                "REIGH_SELECTOR_VERSION": route_filter.get("selector_version") or "",
+                "ROUTE_SELECTOR_VERSION": route_filter.get("selector_version") or "",
+                "REIGH_WORKER_CONTRACT_VERSION": str(route_filter["worker_contract_version"]),
+                "REIGH_WORKER_RUN_ID": route_filter.get("worker_run_id") or "",
+                "WORKER_RUN_ID": route_filter.get("worker_run_id") or "",
             }
         )
+        if route_filter["worker_backend"] == "vibecomfy" and route_filter["worker_profile"].isdigit():
+            env_vars.setdefault("VIBECOMFY_MEMORY_PROFILE", route_filter["worker_profile"])
         if worker_env:
             env_vars.update(worker_env)
         return env_vars
 
+    def _selected_route_filter(self) -> dict[str, Any]:
+        env_route = selected_pool_route_filter()
+        return {
+            **env_route,
+            "worker_backend": str(getattr(self.config, "worker_backend", None) or env_route["worker_backend"]).lower(),
+            "worker_profile": str(getattr(self.config, "worker_profile", None) or env_route["worker_profile"]),
+            "worker_pool": str(getattr(self.config, "worker_pool", None) or env_route["worker_pool"]),
+            "selector_namespace": str(
+                getattr(self.config, "selector_namespace", None) or env_route["selector_namespace"]
+            ),
+            "selector_version": getattr(self.config, "selector_version", None)
+            if getattr(self.config, "selector_version", None) is not None
+            else env_route.get("selector_version"),
+            "worker_contract_version": int(
+                getattr(self.config, "worker_contract_version", None)
+                or env_route["worker_contract_version"]
+            ),
+            "worker_run_id": getattr(self.config, "worker_run_id", None)
+            if getattr(self.config, "worker_run_id", None) is not None
+            else env_route.get("worker_run_id"),
+        }
+
+    def selected_route_metadata(self) -> dict[str, Any]:
+        return selected_pool_route_metadata(self._selected_route_filter())
+
+    def _startup_route_kwargs(self) -> dict[str, Any]:
+        route = self._selected_route_filter()
+        return {
+            "worker_backend": route["worker_backend"],
+            "worker_profile": route["worker_profile"],
+            "worker_pool": route["worker_pool"],
+            "selector_namespace": route["selector_namespace"],
+            "selector_version": route.get("selector_version"),
+            "worker_contract_version": route["worker_contract_version"],
+            "worker_run_id": route.get("worker_run_id"),
+        }
+
     @staticmethod
     def _normalize_runpod_config(runpod_config: RunPodConfig) -> RunPodConfig:
         overrides: dict[str, Any] = {}
-        if not runpod_config.storage_volumes:
+        storage_config_explicit = (
+            "RUNPOD_STORAGE_VOLUMES" in os.environ
+            or "RUNPOD_STORAGE_NAME" in os.environ
+        )
+        if not runpod_config.storage_volumes and not storage_config_explicit:
             overrides["storage_volumes"] = LEGACY_STORAGE_VOLUMES
         if "RUNPOD_DISK_SIZE_GB" not in os.environ:
-            overrides["disk_size_gb"] = 50
+            overrides["disk_size_gb"] = DEFAULT_DUAL_STACK_DISK_GB
         if "RUNPOD_CONTAINER_DISK_GB" not in os.environ:
-            overrides["container_disk_gb"] = 50
+            overrides["container_disk_gb"] = DEFAULT_DUAL_STACK_DISK_GB
         return runpod_config.merge(**overrides) if overrides else runpod_config
 
     def _expand_network_volume_sync(self, volume_id: str, new_size_gb: int) -> bool:
@@ -390,9 +452,9 @@ def create_worker_spawner(config: Any, db: Any) -> WorkerSpawnerAdapter:
     if "RUNPOD_STORAGE_VOLUMES" not in os.environ:
         overrides["storage_volumes"] = LEGACY_STORAGE_VOLUMES
     if "RUNPOD_DISK_SIZE_GB" not in os.environ:
-        overrides["disk_size_gb"] = 50
+        overrides["disk_size_gb"] = DEFAULT_DUAL_STACK_DISK_GB
     if "RUNPOD_CONTAINER_DISK_GB" not in os.environ:
-        overrides["container_disk_gb"] = 50
+        overrides["container_disk_gb"] = DEFAULT_DUAL_STACK_DISK_GB
     runpod_config = RunPodConfig.from_env(**overrides)
     return WorkerSpawnerAdapter(config, db, runpod_config)
 

@@ -1,0 +1,136 @@
+schema_version: 1
+section: 11
+name: sprint11b-canary-readiness
+provider: provider-neutral
+watch_notes:
+  dashboard_import_prerequisite:
+    status: RESOLVED
+    reason: "Sprint 12 dashboard import prerequisite is repaired; scripts.dashboard imports directly and build_export_payload remains pure/testable without a live database client."
+  shadow_isolation:
+    status: RED
+    output_divergence_auto_rollback: disabled_sampled_offline_only
+    reason: Isolated shadow evidence with no completion, billing, upload, or user-visible side effects still lacks live mechanical verification; Sprint 12 keeps readiness red instead of blocking execution.
+  non_rayworker_routes:
+    status: RED
+    source: canary_readiness.non_rayworker
+    source_ref: reigh-worker/scripts/canary_readiness/non_rayworker.py
+    reason: No recent live or staging observation manifest was mechanically verified; fixtures prove registry coverage only, so Sprint 12 readiness remains red until real observations are attached.
+    routes:
+      - route_key: video_enhance
+        runtime: api_orchestrator
+        handler_ref: handlers/fal.py::handle_video_enhance
+        smoke_state: RED
+      - route_key: image-upscale
+        runtime: api_orchestrator
+        handler_ref: handlers/fal.py::handle_image_upscale
+        smoke_state: RED
+      - route_key: animate_character
+        runtime: api_orchestrator
+        handler_ref: handlers/wavespeed.py::handle_animate_character
+        smoke_state: RED
+      - route_key: flux_klein_edit
+        runtime: api_orchestrator
+        handler_ref: handlers/fal.py::handle_flux_klein_edit
+        smoke_state: RED
+rules:
+  - name: canary_latency_p95_ratio_high
+    severity: warning
+    metric_key: latency_p95_ratio
+    expression: latency_p95_ratio >= 1.25
+    for: 10m
+    runbook: tasks/canary-rollback-orchestrator.md#latency-p95-ratio
+    summary: Canary p95 latency is above the stable-route ratio gate.
+    labels:
+      gate: performance
+      source: canary_readiness.runtime_metrics
+  - name: canary_vram_peak_ratio_high
+    severity: warning
+    metric_key: vram_peak_ratio
+    expression: vram_peak_ratio >= 1.20
+    for: 10m
+    runbook: tasks/canary-rollback-orchestrator.md#vram-peak-ratio
+    summary: Canary peak VRAM is above the stable-route ratio gate.
+    labels:
+      gate: performance
+      source: canary_readiness.runtime_metrics
+  - name: canary_oom_count_nonzero
+    severity: critical
+    metric_key: oom_count
+    expression: oom_count > 0
+    for: 0m
+    runbook: tasks/canary-rollback-orchestrator.md#oom-count
+    summary: Canary route reported one or more out-of-memory failures.
+    labels:
+      gate: reliability
+      source: canary_readiness.runtime_metrics
+  - name: canary_output_divergence_detected
+    severity: critical
+    metric_key: canary_output_divergence
+    expression: canary_output_divergence > 0
+    for: 0m
+    runbook: tasks/canary-rollback-orchestrator.md#output-divergence
+    summary: Canary output comparison diverged from the accepted route threshold.
+    labels:
+      gate: parity
+      source: dual_run_compare.reporting
+  - name: canary_missing_runtime_evidence
+    severity: critical
+    metric_key: missing_runtime_evidence
+    expression: missing_runtime_evidence > 0
+    for: 0m
+    runbook: tasks/canary-rollback-orchestrator.md#missing-runtime-evidence
+    summary: A full-canary route is missing recent standardized runtime evidence.
+    labels:
+      gate: evidence
+      source: canary_readiness.runtime_metrics
+  - name: canary_stale_route_workers
+    severity: critical
+    metric_key: stale_route_workers
+    expression: stale_route_workers > 0
+    for: 5m
+    runbook: tasks/canary-rollback-orchestrator.md#stale-route-workers
+    summary: One or more route-aware canary workers are stale.
+    labels:
+      gate: worker_health
+      source: dashboard.route_worker_health
+  - name: canary_quota_alerts_active
+    severity: warning
+    metric_key: quota_alerts
+    expression: quota_alerts > 0
+    for: 5m
+    runbook: tasks/canary-rollback-orchestrator.md#quota-alerts
+    summary: Canary pool quota alerts are active.
+    labels:
+      gate: capacity
+      source: dashboard.quota_alerts
+  - name: canary_claim_suppression_active
+    severity: warning
+    metric_key: claim_suppression
+    expression: claim_suppression > 0
+    for: 5m
+    runbook: tasks/canary-rollback-app.md#claim-suppression
+    summary: Canary claim suppression is active for one or more routes or pools.
+    labels:
+      gate: claims
+      source: task-counts.claim_suppression
+  - name: canary_completion_billing_failure
+    severity: critical
+    metric_key: completion_billing_failure
+    expression: completion_billing_failure > 0
+    for: 0m
+    runbook: tasks/canary-rollback-app.md#completion-billing-failure
+    summary: Shared completion or billing evidence reported a failure.
+    labels:
+      gate: shared_paths
+      source: complete_task
+  - name: canary_non_rayworker_route_smoke_failure
+    severity: critical
+    metric_key: non_rayworker_route_smoke_failure
+    expression: non_rayworker_route_smoke_failure > 0
+    for: 0m
+    runbook: tasks/canary-rollback-app.md#non-rayworker-route-smoke
+    summary: An active non-RayWorker route smoke gate failed.
+    labels:
+      gate: non_rayworker_smoke
+      source: canary_readiness.non_rayworker
+      watch_routes: video_enhance,image-upscale,animate_character,flux_klein_edit

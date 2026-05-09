@@ -9,6 +9,25 @@ export SUPABASE_SERVICE_ROLE_KEY="__SUPABASE_SERVICE_KEY__"
 export SUPABASE_SERVICE_KEY="__SUPABASE_SERVICE_KEY__"
 export REPLICATE_API_TOKEN="__REPLICATE_API_TOKEN__"
 export MAX_TASK_WAIT_MINUTES="__MAX_TASK_WAIT_MINUTES__"
+export REIGH_BACKEND="__WORKER_BACKEND__"
+export WORKER_BACKEND="$REIGH_BACKEND"
+export REIGH_WORKER_PROFILE="__WORKER_PROFILE__"
+export WGP_PROFILE="$REIGH_WORKER_PROFILE"
+export REIGH_WORKER_POOL="__WORKER_POOL__"
+export WORKER_POOL="$REIGH_WORKER_POOL"
+export REIGH_SELECTOR_NAMESPACE="__SELECTOR_NAMESPACE__"
+export ROUTE_SELECTOR_NAMESPACE="$REIGH_SELECTOR_NAMESPACE"
+export REIGH_SELECTOR_VERSION="__SELECTOR_VERSION__"
+export ROUTE_SELECTOR_VERSION="$REIGH_SELECTOR_VERSION"
+export REIGH_WORKER_CONTRACT_VERSION="__WORKER_CONTRACT_VERSION__"
+export REIGH_WORKER_RUN_ID="__WORKER_RUN_ID__"
+export WORKER_RUN_ID="$REIGH_WORKER_RUN_ID"
+export REIGH_WARM_CACHE_PRELOAD_MODEL="__WARM_CACHE_PRELOAD_MODEL__"
+export REIGH_WARM_CACHE_SOURCE="__WARM_CACHE_SOURCE__"
+export REIGH_WARM_CACHE_SKIP_REASON="__WARM_CACHE_SKIP_REASON__"
+if [ "$REIGH_BACKEND" = "vibecomfy" ] && [[ "$REIGH_WORKER_PROFILE" =~ ^[0-9]+$ ]]; then
+    export VIBECOMFY_MEMORY_PROFILE="$REIGH_WORKER_PROFILE"
+fi
 
 # Non-interactive apt
 export DEBIAN_FRONTEND=noninteractive
@@ -32,11 +51,17 @@ echo "========================================="
 echo "🚀 WORKER STARTUP SCRIPT EXECUTION BEGIN"
 echo "========================================="
 echo "Worker ID: $WORKER_ID"
+echo "Route contract: backend=$REIGH_BACKEND profile=$REIGH_WORKER_PROFILE pool=$REIGH_WORKER_POOL selector=$REIGH_SELECTOR_NAMESPACE/${REIGH_SELECTOR_VERSION:-default} contract=$REIGH_WORKER_CONTRACT_VERSION run=${REIGH_WORKER_RUN_ID:-none}"
 echo "Timestamp: $(date -Iseconds)"
 echo "Initial PWD: $(pwd)"
 echo "USER: $(whoami)"
 echo "Kernel: $(uname -a | head -c 200)"
 echo "Log file: $LOG_FILE"
+echo
+
+echo "=== EARLY DISK DIAGNOSTICS ==="
+df -h /
+df -h /workspace || true
 echo
 
 # Error handling with useful tails
@@ -142,6 +167,62 @@ record_initial_deps_installing_or_exit() {
     done
     echo "❌ Unable to record initial deps_installing startup phase after 3 attempts; aborting startup"
     exit 1
+}
+
+wait_worker_preflight_ready_or_exit() {
+    local worker_pid="$1"
+    local timeout_sec="${REIGH_PREFLIGHT_READY_TIMEOUT_SEC:-900}"
+    local started_at now elapsed body_file http_status preflight_status
+    started_at=$(date +%s)
+    body_file=$(mktemp) || exit 1
+
+    echo "⏳ Waiting for worker preflight readiness (timeout ${timeout_sec}s)" >> "$LOG_FILE" 2>&1
+    while true; do
+        if ! kill -0 "$worker_pid" 2>/dev/null; then
+            echo "❌ ERROR: Worker process $worker_pid exited before preflight passed" >> "$LOG_FILE" 2>&1
+            rm -f "$body_file"
+            exit 1
+        fi
+
+        http_status=$(curl -sS -m 5 \
+            --output "$body_file" \
+            --write-out '%{http_code}' \
+            "${SUPABASE_URL}/rest/v1/workers?id=eq.${WORKER_ID}&select=metadata" \
+            -H "Authorization: Bearer $SUPABASE_SERVICE_ROLE_KEY" \
+            -H "apikey: $SUPABASE_SERVICE_ROLE_KEY" 2>/dev/null || true)
+
+        if [ "$http_status" = "200" ]; then
+            preflight_status=$(python3 -c "
+import json, sys
+with open(sys.argv[1], 'r', encoding='utf-8') as handle:
+    rows = json.load(handle)
+meta = rows[0].get('metadata', {}) if rows else {}
+print(meta.get('preflight_status') or '')
+" "$body_file" 2>/dev/null || true)
+            if [ "$preflight_status" = "passed" ]; then
+                echo "✅ Worker preflight passed; startup can mark ready" >> "$LOG_FILE" 2>&1
+                rm -f "$body_file"
+                return 0
+            fi
+            if [ "$preflight_status" = "failed" ]; then
+                echo "❌ Worker preflight failed; refusing to mark ready" >> "$LOG_FILE" 2>&1
+                cat "$body_file" >> "$LOG_FILE" 2>&1 || true
+                rm -f "$body_file"
+                exit 1
+            fi
+        else
+            echo "⚠️  Preflight metadata fetch returned HTTP $http_status" >> "$LOG_FILE" 2>&1
+        fi
+
+        now=$(date +%s)
+        elapsed=$((now - started_at))
+        if [ "$elapsed" -ge "$timeout_sec" ]; then
+            echo "❌ Timed out waiting for worker preflight after ${elapsed}s" >> "$LOG_FILE" 2>&1
+            rm -f "$body_file"
+            exit 1
+        fi
+        sleep 5
+    done
 }
 
 # Apt helper with timeouts/retries (prevents indefinite hangs)
@@ -480,15 +561,8 @@ WORKER_PID=$!
 
 echo "✅ Worker process started with PID: $WORKER_PID at $(date)" >> $LOG_FILE 2>&1
 
-# Give the worker a moment to start and check if it's still running
-sleep 2
-if kill -0 $WORKER_PID 2>/dev/null; then
-    echo "✅ Worker process $WORKER_PID is still running after 2 seconds" >> $LOG_FILE 2>&1
-    update_worker_phase "ready"
-else
-    echo "❌ ERROR: Worker process $WORKER_PID died immediately!" >> $LOG_FILE 2>&1
-    echo "Exit status was: $?" >> $LOG_FILE 2>&1
-fi
+wait_worker_preflight_ready_or_exit "$WORKER_PID"
+update_worker_phase "ready"
 
 echo "=========================================" >> $LOG_FILE 2>&1
 echo "🏁 STARTUP SCRIPT COMPLETED SUCCESSFULLY" >> $LOG_FILE 2>&1

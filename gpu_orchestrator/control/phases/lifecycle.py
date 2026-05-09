@@ -31,8 +31,11 @@ class LifecyclePhaseMixin:
         now = datetime.now(timezone.utc)
         config = self.config
 
-        spawning_states = [ws for ws in worker_states if ws.is_spawning]
-        active_states = [ws for ws in worker_states if ws.is_active and not ws.is_terminal]
+        spawning_states = [ws for ws in worker_states if ws.is_spawning and not ws.is_route_stale]
+        active_states = [
+            ws for ws in worker_states
+            if ws.is_active and not ws.is_terminal and not ws.is_route_stale
+        ]
 
         current_capacity = len(active_states) + len(spawning_states)
 
@@ -87,7 +90,7 @@ class LifecyclePhaseMixin:
         terminated_ids = set()
         for ws in eligible[:to_terminate]:
             if ws.runpod_id:
-                success = self.runpod.terminate_worker(ws.runpod_id)
+                success = await self.runpod.terminate_worker(ws.runpod_id)
                 if success:
                     logger.info(f"Terminated spawning worker {ws.worker_id} (RunPod {ws.runpod_id})")
                 else:
@@ -135,7 +138,7 @@ class LifecyclePhaseMixin:
                 summary.workers_promoted += 1
                 continue
 
-            status_update = self.runpod.check_and_initialize_worker(worker_id, runpod_id)
+            status_update = await self.runpod.check_and_initialize_worker(worker_id, runpod_id)
 
             if status_update["status"] == "error":
                 await self._mark_worker_error_by_id(worker_id, status_update.get("error", "Unknown error"))
@@ -150,7 +153,7 @@ class LifecyclePhaseMixin:
             if status_update.get("ready") and status_update["status"] == "spawning":
                 if ws.lifecycle == WorkerLifecycle.SPAWNING_SCRIPT_PENDING:
                     if self.config.auto_start_worker_process:
-                        if self.runpod.start_worker_process(
+                        if await self.runpod.start_worker_process(
                             runpod_id,
                             worker_id,
                             has_pending_tasks=(task_counts.queued > 0),
@@ -160,6 +163,7 @@ class LifecyclePhaseMixin:
                                 "ssh_details": status_update.get("ssh_details"),
                                 "startup_script_launched": True,
                                 "startup_script_launched_at": datetime.now(timezone.utc).isoformat(),
+                                **_selected_route_metadata(self),
                             }
                             await self.db.update_worker_status(worker_id, "spawning", metadata_update)
                             summary.startup_scripts_launched += 1
@@ -260,3 +264,10 @@ class LifecyclePhaseMixin:
 
 
 __all__ = ["LifecyclePhaseMixin"]
+
+
+def _selected_route_metadata(host: "ControlHost") -> dict[str, Any]:
+    metadata_fn = getattr(host.runpod, "selected_route_metadata", None)
+    if callable(metadata_fn):
+        return metadata_fn()
+    return {}
