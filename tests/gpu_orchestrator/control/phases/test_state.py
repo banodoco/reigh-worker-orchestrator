@@ -165,9 +165,9 @@ def test_script_running_killed_after_long_timeout():
     assert derived.error_code == "SCRIPT_RUNNING_TIMEOUT"
 
 
-def test_heartbeating_worker_with_stale_ready_phase_not_killed():
-    """A heartbeating worker with startup_phase='ready' must NOT be killed by startup timeout."""
-    # Worker has been alive 40 minutes, heartbeating, startup_phase still "ready"
+def test_heartbeating_worker_with_stale_ready_phase_killed_when_never_claimed():
+    """Worker heartbeating with startup_phase='ready' but never claimed a task is killed
+    once past startup_grace_period_sec — regardless of queue depth (Done Criterion #5)."""
     derived = _derive_state(
         startup_phase="ready",
         last_heartbeat="2026-03-30T00:39:50+00:00",
@@ -176,4 +176,5 @@ def test_heartbeating_worker_with_stale_ready_phase_not_killed():
 
     assert derived.has_heartbeat is True
     assert derived.in_startup_phase is False
-    assert derived.should_terminate is False
+    assert derived.should_terminate is True
+    assert derived.error_code == "STARTUP_NEVER_READY"

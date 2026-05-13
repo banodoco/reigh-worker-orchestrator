@@ -28,6 +28,7 @@ def make_config(**overrides) -> OrchestratorConfig:
         "graceful_shutdown_timeout_sec": 600,
         "excluded_worker_max_lifetime_sec": 7200,
         "startup_grace_period_sec": 600,
+        "active_initializing_max_sec": 1800,
         "ready_not_claiming_timeout_sec": 180,
         "gpu_not_detected_timeout_sec": 300,
         "heartbeat_promotion_threshold_sec": 90,
