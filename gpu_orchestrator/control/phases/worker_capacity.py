@@ -71,6 +71,14 @@ class WorkerCapacityPhaseMixin:
                         logger.info(f"Terminated idle worker {worker['id']} (idle > {dynamic_timeout}s)")
 
         if decision.should_scale_up:
+            pool = getattr(config, "worker_pool", None) or "production"
+            if await _scale_paused_for_pool(self, pool):
+                logger.warning(
+                    f"SCALE-UP SUPPRESSED: pause_scaling row active for pool={pool}; "
+                    f"skipping spawn of {decision.workers_to_spawn} workers"
+                )
+                return
+
             logger.info(
                 f"SCALING UP: Spawning {decision.workers_to_spawn} workers "
                 f"(current: {decision.current_capacity}, desired: {decision.desired_workers})"
@@ -375,3 +383,33 @@ def _selected_route_metadata(host: "ControlHost") -> dict[str, Any]:
     if callable(metadata_fn):
         return metadata_fn()
     return {}
+
+
+async def _scale_paused_for_pool(host: "ControlHost", pool: str) -> bool:
+    """Return True iff a public.pause_scaling row for `pool` has `until > now()`.
+
+    Written by the route-contract-sentinel edge function on persistent
+    UNCLAIMABLE_WORK / WORKERS_STUCK_INITIALIZING ticks. Soft-fail to False on
+    error so a sentinel-side outage never bricks scale-up.
+    """
+    try:
+        result = (
+            host.db.supabase.table("pause_scaling")
+            .select("until")
+            .eq("pool", pool)
+            .limit(1)
+            .execute()
+        )
+        rows = result.data or []
+        if not rows:
+            return False
+        until_raw = rows[0].get("until")
+        if not until_raw:
+            return False
+        until_dt = datetime.fromisoformat(str(until_raw).replace("Z", "+00:00"))
+        if until_dt.tzinfo is None:
+            until_dt = until_dt.replace(tzinfo=timezone.utc)
+        return until_dt > datetime.now(timezone.utc)
+    except Exception as exc:
+        logger.warning(f"pause_scaling lookup failed for pool={pool}: {exc}")
+        return False

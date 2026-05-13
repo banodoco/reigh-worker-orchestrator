@@ -73,6 +73,7 @@ class OrchestratorConfig:
     ready_not_claiming_timeout_sec: int
     gpu_not_detected_timeout_sec: int
     heartbeat_promotion_threshold_sec: int
+    active_initializing_max_sec: int
 
     # Failure protection
     max_worker_failure_rate: float
@@ -164,13 +165,14 @@ class OrchestratorConfig:
             excluded_worker_max_lifetime_sec=int(os.getenv("EXCLUDED_WORKER_MAX_LIFETIME_SEC", "7200")),
 
             # Health check timeouts
-            startup_grace_period_sec=int(os.getenv("STARTUP_GRACE_PERIOD_SEC", "600")),
+            startup_grace_period_sec=int(os.getenv("STARTUP_GRACE_PERIOD_SEC", "1200")),
             ready_not_claiming_timeout_sec=int(os.getenv("READY_NOT_CLAIMING_TIMEOUT_SEC", "600")),
             gpu_not_detected_timeout_sec=int(os.getenv("GPU_NOT_DETECTED_TIMEOUT_SEC", "300")),
             heartbeat_promotion_threshold_sec=int(os.getenv(
                 "HEARTBEAT_PROMOTION_THRESHOLD_SEC",
                 str(max(60, poll_sec * 3))
             )),
+            active_initializing_max_sec=int(os.getenv("ACTIVE_INITIALIZING_MAX_SEC", "1800")),
 
             # Failure protection
             max_worker_failure_rate=float(os.getenv("MAX_WORKER_FAILURE_RATE", "0.8")),

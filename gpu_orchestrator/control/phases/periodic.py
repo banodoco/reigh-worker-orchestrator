@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, Dict, List
 
 import runpod
 from gpu_orchestrator.control.diagnostics import WorkerDiagnosticsMixin
-from gpu_orchestrator.worker_state import CycleSummary, DerivedWorkerState
+from gpu_orchestrator.worker_state import CycleSummary, DerivedWorkerState, WorkerLifecycle
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +211,20 @@ class PeriodicChecksMixin:
             # Idle healthy workers are PATH B's responsibility (scaling execution).
             # Excluded workers don't go through PATH B, so the cap above is
             # what bounds their lifetime.
-            if ws.is_active and not ws.has_active_task and ws.heartbeat_is_recent:
+            # Exception: a worker stuck in ACTIVE_INITIALIZING past
+            # active_initializing_max_sec is a zombie even with a fresh heartbeat
+            # (its launcher subprocess can keep the DB row warm while the main
+            # process is dead). Don't short-circuit it.
+            stuck_initializing = (
+                ws.lifecycle == WorkerLifecycle.ACTIVE_INITIALIZING
+                and ws.effective_age_sec > self.config.active_initializing_max_sec
+            )
+            if (
+                ws.is_active
+                and not ws.has_active_task
+                and ws.heartbeat_is_recent
+                and not stuck_initializing
+            ):
                 continue
 
             cutoff_sec = self.config.spawning_timeout_sec if ws.is_spawning else self.config.gpu_idle_timeout_sec
